@@ -164,13 +164,31 @@ def test_demo_has_gds(demo):
 
 
 def test_ground_truth_labels_are_hidden_from_schema_introspection(demo):
-    """db.labels() filters by traverse privilege, so the answer key should not
-    be advertised there. Constraint listings still name the labels, which is
-    accepted and documented in neo4j/nes-setup.cypher - the data is what is
-    protected.
+    """db.labels() filters by traverse privilege. The answer key must not be
+    advertised there, nor in the schema visualization Bloom draws.
     """
     with demo.session(database=DB) as s:
         labels = {r["label"] for r in s.run("CALL db.labels() YIELD label RETURN label")}
-    assert "GroundTruth" not in labels
-    assert "Ring" not in labels
-    assert "TypologyLabel" not in labels
+    for hidden in ("GroundTruth", "Ring", "TypologyLabel", "CaseNarrative"):
+        assert hidden not in labels
+
+
+def test_ground_truth_labels_are_hidden_from_constraint_listings(demo):
+    """The last leak, and the one no deny rule closes.
+
+    SHOW CONSTRAINTS is not filtered by traverse privilege, so a constraint on
+    :Ring would name it to any demo user who asks - which is why ground-truth
+    labels carry no constraints or indexes at all. The demo role keeps SHOW
+    CONSTRAINTS because Bloom reads it to draw the schema panel; take that away
+    and the demo silently loses its schema view.
+    """
+    with demo.session(database=DB) as s:
+        named: set[str] = set()
+        for row in s.run("SHOW CONSTRAINTS YIELD labelsOrTypes"):
+            named.update(row["labelsOrTypes"] or [])
+        for row in s.run("SHOW INDEXES YIELD labelsOrTypes"):
+            named.update(row["labelsOrTypes"] or [])
+    leaked = named & {"GroundTruth", "Ring", "TypologyLabel", "CaseNarrative"}
+    assert not leaked, f"schema introspection leaks ground-truth labels: {sorted(leaked)}"
+    # And the control is still on: business labels are visible, so Bloom works.
+    assert "Account" in named

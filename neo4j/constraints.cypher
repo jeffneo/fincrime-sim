@@ -2,6 +2,11 @@
 // Applied after the bulk import, never before: uniqueness constraints
 // on 30M nodes are far cheaper to build once over existing data than
 // to enforce per-row during the load.
+//
+// Ground-truth labels are intentionally absent - a constraint names its
+// own label and SHOW CONSTRAINTS is not privilege-filtered, so indexing
+// :Ring would re-leak what every deny rule exists to hide. See
+// constraints_cypher() in src/fincrime/export/neo4j_import.py.
 
 // Institution
 CREATE CONSTRAINT institution_key IF NOT EXISTS FOR (n:Institution) REQUIRE n.institution_id IS UNIQUE;
@@ -48,16 +53,3 @@ CREATE INDEX ip_address_address IF NOT EXISTS FOR (n:IpAddress) ON (n.address);
 CREATE CONSTRAINT transaction_key IF NOT EXISTS FOR (n:Transaction) REQUIRE n.txn_id IS UNIQUE;
 CREATE INDEX transaction_booked_at IF NOT EXISTS FOR (n:Transaction) ON (n.booked_at);
 CREATE INDEX transaction_channel IF NOT EXISTS FOR (n:Transaction) ON (n.channel);
-
-// Ring  // GROUND TRUTH
-CREATE CONSTRAINT ring_key IF NOT EXISTS FOR (n:Ring) REQUIRE n.ring_id IS UNIQUE;
-CREATE INDEX ring_typology IF NOT EXISTS FOR (n:Ring) ON (n.typology);
-
-// TypologyLabel  // GROUND TRUTH
-CREATE CONSTRAINT typology_label_key IF NOT EXISTS FOR (n:TypologyLabel) REQUIRE n.label_id IS UNIQUE;
-CREATE INDEX typology_label_subject_id IF NOT EXISTS FOR (n:TypologyLabel) ON (n.subject_id);
-CREATE INDEX typology_label_typology IF NOT EXISTS FOR (n:TypologyLabel) ON (n.typology);
-CREATE INDEX typology_label_polarity IF NOT EXISTS FOR (n:TypologyLabel) ON (n.polarity);
-
-// CaseNarrative  // GROUND TRUTH
-CREATE CONSTRAINT case_narrative_key IF NOT EXISTS FOR (n:CaseNarrative) REQUIRE n.narrative_id IS UNIQUE;

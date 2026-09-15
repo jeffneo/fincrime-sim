@@ -143,6 +143,39 @@ def test_ground_truth_edges_are_denied_by_type():
             )
 
 
+def test_no_constraint_or_index_names_a_ground_truth_label():
+    """SHOW CONSTRAINTS is the one surface deny rules do not cover.
+
+    It is not filtered by traverse privilege, and a constraint definition
+    carries its own label - so indexing :Ring would tell a demo user the answer
+    key exists after every other control has done its job. Ground-truth tables
+    need neither: the importer enforces their uniqueness and they are small
+    enough to scan.
+    """
+    from fincrime.export.neo4j_import import constraints_cypher
+
+    ddl = constraints_cypher()
+    for table in ground_truth_tables():
+        for label in table.labels:
+            assert f"(n:{label})" not in ddl, (
+                f"constraints_cypher() emits DDL for :{label}, which would "
+                "re-leak a ground-truth label through SHOW CONSTRAINTS"
+            )
+
+
+def test_business_labels_all_keep_a_key_constraint():
+    """The flip side: dropping GT constraints must not drop business ones.
+
+    Those back the 30M-node lookups every demo query makes.
+    """
+    from fincrime.export.neo4j_import import constraints_cypher
+
+    ddl = constraints_cypher()
+    for table in business_tables():
+        assert f"REQUIRE n.{table.key.name} IS UNIQUE" in ddl
+        assert f"(n:{table.label})" in ddl
+
+
 def test_rbac_denies_every_ground_truth_label():
     """Every ground-truth label needs its own DENY, not just the marker.
 

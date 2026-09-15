@@ -47,6 +47,13 @@ detector cannot reach a label by accident:
 3. **Neo4j Enterprise RBAC** — `fincrime_demo` is denied traverse and read on
    all of it. `neo4j/nes-setup.cypher` holds the rules.
 
+Ground-truth labels also carry no constraints or indexes, which closes the one
+surface deny rules miss: `SHOW CONSTRAINTS` is not privilege-filtered, so a
+constraint on `:Ring` would name it. Nothing is lost — `neo4j-admin import`
+enforces uniqueness at load time, and ground truth is ~50K nodes against 30M
+transactions, so a label scan is milliseconds. Business labels keep their
+constraints, so Bloom's schema panel still works for demo users.
+
 Two tests keep this from eroding: `tests/test_schema.py` fails the build if a
 ground-truth-shaped column appears on a business table or if a ground-truth
 label or relationship type has no matching deny rule; `tests/test_rbac.py`
