@@ -1,0 +1,23 @@
+# Iteration preset. Every milestone's smoke test runs at this scale.
+name: dev
+seed: 20260915
+
+population:
+  individuals: 9_000
+  legal_entities: 1_000
+  # Accounts, cards, devices, addresses and phones are derived from entity
+  # counts by the population generator's own distributions (M1), not set here.
+
+window:
+  start: 2025-01-01
+  end: 2025-03-31
+
+institution: institution.yaml
+typologies: typologies.yaml
+
+output:
+  dir: out/dev
+  # Parquet row-group size. 128k rows keeps the transaction table's groups
+  # near 64MB, which is where predicate pushdown stops paying for itself.
+  row_group_size: 131_072
+  compression: zstd

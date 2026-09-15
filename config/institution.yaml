@@ -1,0 +1,66 @@
+# The simulated institution and its control environment.
+#
+# Jurisdiction is US (PHASE1-PLAN.md §9.1): the thresholds below are the real
+# US regulatory constants, because a typology's shape is defined relative to
+# the threshold it is evading. Changing jurisdiction means changing these
+# numbers, not the generators.
+
+institution:
+  name: Meridian National Bank
+  country: US
+  control_policy: us_retail_commercial_2025
+
+controls:
+  # 31 CFR 1010.311. A currency transaction over this amount requires a CTR.
+  # Structuring (T1) is defined by evading it, so this is the single most
+  # load-bearing constant in the simulation.
+  ctr_threshold_usd: 10_000
+
+  # 31 CFR 1010.313. Multiple same-day cash transactions by or for the same
+  # person are aggregated before the threshold is applied. A structuring
+  # generator that ignores this produces a pattern the institution would catch
+  # immediately, so the control layer must implement the aggregation.
+  ctr_aggregation_window_hours: 24
+
+  # 31 CFR 1010.410(e)/(f). Funds-transfer recordkeeping and travel rule.
+  travel_rule_threshold_usd: 3_000
+
+  # Monitoring thresholds the institution's own rules engine uses. These are
+  # the "bank-style rules baseline" the M5 detectability gate scores against.
+  monitoring:
+    cash_structuring_lookback_days: 30
+    cash_structuring_aggregate_usd: 25_000
+    rapid_movement_pass_through_ratio: 0.9
+    rapid_movement_window_hours: 72
+    new_account_high_velocity_days: 90
+    wire_to_high_risk_jurisdiction_usd: 5_000
+    card_velocity_txn_per_hour: 6
+
+  # Alert budget for scoring. A real AML team can work a fixed number of
+  # alerts, which is why recall is reported at a budget rather than as a
+  # threshold-free AUC alone.
+  alert_budget_pct: 1.0
+
+kyc_tiers:
+  1:
+    label: basic
+    description: Simplified diligence. Low-value retail, capped balances.
+    max_balance_usd: 25_000
+    max_single_transfer_usd: 5_000
+  2:
+    label: standard
+    description: Standard CDD. Default for retail and small business.
+    max_balance_usd: 500_000
+    max_single_transfer_usd: 100_000
+  3:
+    label: enhanced
+    description: EDD. PEPs, high-risk industries, high-value commercial.
+    max_balance_usd: null
+    max_single_transfer_usd: null
+
+taxonomies:
+  # Referenced by the population generator (M1). Codes are real public
+  # taxonomies; the entities assigned to them are synthetic.
+  industry: naics_2022
+  merchant_category: iso_18245
+  currency_default: USD

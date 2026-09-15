@@ -1,0 +1,187 @@
+# Typology prevalence and difficulty-tier knob bundles.
+#
+# Difficulty is a property of the GENERATOR PARAMETERS, never a post-hoc
+# annotation (PHASE1-PLAN.md D6). "hard" means genuinely less signal: tighter
+# blending with normal activity, more timing dispersion, smaller rings. If the
+# tiers were just labels, curriculum evaluation would be a fiction.
+#
+# M0 ships the structure and the knob names. The VALUES are first guesses and
+# are expected to move at M5, when the detectability harness measures what they
+# actually produce. Treat every number here as provisional until then.
+
+prevalence:
+  # Spec §3: crime is rare. Fraction of eligible entities carrying an illicit
+  # label. The detectability gate is meaningless at inflated base rates.
+  illicit_entity_fraction: 0.004
+  # Hard negatives are deliberately MORE common than crime. Real alert queues
+  # are dominated by legitimate oddities, and the ratio here is what makes the
+  # baseline's precision realistic rather than the label count.
+  hard_negative_entity_fraction: 0.02
+
+# Split of illicit entities across the four Phase 1 typologies, and of each
+# typology's rings across difficulty tiers.
+mix:
+  structuring:        {share: 0.30, tiers: {easy: 0.3, medium: 0.5, hard: 0.2}}
+  shell_layering:     {share: 0.25, tiers: {easy: 0.3, medium: 0.5, hard: 0.2}}
+  mule_network:       {share: 0.25, tiers: {easy: 0.3, medium: 0.5, hard: 0.2}}
+  cnp_fraud:          {share: 0.20, tiers: {easy: 0.3, medium: 0.5, hard: 0.2}}
+
+typologies:
+
+  # T1 - structuring / smurfing. Star topology into a collector account, cash
+  # deposits held under the CTR threshold.
+  structuring:
+    enabled: true
+    tiers:
+      easy:
+        deposit_points: [6, 12]          # distinct branches/ATMs/accounts
+        threshold_headroom_pct: [2, 8]    # how far under the CTR threshold
+        aggregation_window_days: [3, 10]
+        legit_activity_share: [0.0, 0.2]  # normal activity blended into the stream
+        amount_jitter_cv: 0.05            # low jitter => obvious clustering
+        reuse_same_branch: true
+      medium:
+        deposit_points: [4, 8]
+        threshold_headroom_pct: [8, 25]
+        aggregation_window_days: [10, 30]
+        legit_activity_share: [0.3, 0.6]
+        amount_jitter_cv: 0.18
+        reuse_same_branch: false
+      hard:
+        deposit_points: [2, 4]
+        threshold_headroom_pct: [25, 55]  # well under, looks like ordinary cash
+        aggregation_window_days: [30, 75]
+        legit_activity_share: [0.6, 0.85]
+        amount_jitter_cv: 0.35            # no visible clustering at all
+        reuse_same_branch: false
+
+  # T2 - shell-company layering. Chain of shells with shared directors and
+  # addresses, rapid pass-through, near-zero retention.
+  shell_layering:
+    enabled: true
+    tiers:
+      easy:
+        chain_length: [4, 6]
+        pass_through_hours: [1, 24]
+        retention_pct: [0.0, 0.02]
+        round_amount_bias: 0.8            # round numbers are a strong signal
+        shared_director_rate: 0.9
+        shared_address_rate: 0.9
+        decoy_activity_per_shell: [0, 2]
+      medium:
+        chain_length: [3, 5]
+        pass_through_hours: [24, 120]
+        retention_pct: [0.02, 0.08]
+        round_amount_bias: 0.35
+        shared_director_rate: 0.5
+        shared_address_rate: 0.4
+        decoy_activity_per_shell: [5, 20]
+      hard:
+        chain_length: [2, 3]
+        pass_through_hours: [120, 600]
+        retention_pct: [0.08, 0.2]
+        round_amount_bias: 0.05
+        shared_director_rate: 0.15
+        shared_address_rate: 0.1
+        decoy_activity_per_shell: [30, 90] # shells with real-looking trade
+      # Phase 1 is single-institution, so a hop that would leave the bank
+      # terminates at a synthetic correspondent counterparty rather than being
+      # dropped. Phase 2 replaces this with a real second institution.
+      external_hop_placeholder: true
+
+  # T3 - money mule network. Recently-opened accounts on shared devices,
+  # fan-in from unrelated payers, forwarding to a small collector set.
+  mule_network:
+    enabled: true
+    tiers:
+      easy:
+        ring_size: [15, 40]
+        collectors: [1, 2]
+        device_sharing_rate: [0.7, 1.0]
+        account_age_days_at_first_use: [1, 20]
+        retention_pct: [0.0, 0.05]
+        forward_latency_hours: [1, 12]
+        recruitment_ramp_days: [5, 15]
+      medium:
+        ring_size: [8, 20]
+        collectors: [2, 4]
+        device_sharing_rate: [0.3, 0.6]
+        account_age_days_at_first_use: [20, 120]
+        retention_pct: [0.05, 0.12]
+        forward_latency_hours: [12, 72]
+        recruitment_ramp_days: [15, 60]
+      hard:
+        ring_size: [3, 8]
+        collectors: [3, 6]                # no obvious hub
+        device_sharing_rate: [0.0, 0.15]  # the headline signal, removed
+        account_age_days_at_first_use: [120, 400]
+        retention_pct: [0.12, 0.3]
+        forward_latency_hours: [72, 400]
+        recruitment_ramp_days: [60, 180]
+
+  # T4 - card-not-present fraud. Compromised PANs at CNP merchants, test-auth
+  # escalation, device/IP and geography mismatch.
+  cnp_fraud:
+    enabled: true
+    tiers:
+      easy:
+        cards_per_device: [10, 40]
+        test_auth: true
+        test_auth_amount_usd: [0.5, 4.0]
+        burst_window_hours: [1, 6]
+        txns_per_card: [4, 15]
+        amount_ratio_vs_normal: [4.0, 20.0]
+        geo_mismatch_rate: 1.0
+        mcc_concentration: 0.9
+      medium:
+        cards_per_device: [3, 10]
+        test_auth: true
+        test_auth_amount_usd: [1.0, 12.0]
+        burst_window_hours: [6, 72]
+        txns_per_card: [2, 6]
+        amount_ratio_vs_normal: [1.5, 5.0]
+        geo_mismatch_rate: 0.6
+        mcc_concentration: 0.5
+      hard:
+        cards_per_device: [1, 2]          # no cross-card device reuse
+        test_auth: false
+        burst_window_hours: [72, 500]
+        txns_per_card: [1, 3]
+        amount_ratio_vs_normal: [0.8, 2.0] # inside the cardholder's own range
+        geo_mismatch_rate: 0.15
+        mcc_concentration: 0.2
+
+# Legitimate entities engineered to trip each typology's headline signal
+# (PHASE1-PLAN.md D7/§5). These carry polarity=hard_negative labels - they are
+# ground truth about what is NOT crime, which the scorer needs and the demo
+# user must not see.
+hard_negatives:
+  cash_intensive_business:
+    mimics: structuring
+    share: 0.35
+    naics: [722511, 812310, 445110, 713990]   # restaurants, laundromats, grocers, amusement
+    note: >
+      Distinguishing signal a detector must find: stable weekly seasonality, a
+      card-sales-to-cash ratio consistent with the industry, and consistent
+      supplier payments - none of which a smurf collector has.
+  treasury_hub:
+    mimics: mule_network
+    share: 0.25
+    note: >
+      Payroll and treasury sweep accounts have extreme fan-in/fan-out. The
+      distinguishing signal is counterparty-set stability over time, explicit
+      employment links, and no device sharing.
+  frequent_traveler:
+    mimics: cnp_fraud
+    share: 0.25
+    note: >
+      New device plus geographic mismatch plus a spend burst. The
+      distinguishing signal is continuity of merchant preferences and the
+      absence of cross-card device reuse.
+  holding_structure:
+    mimics: shell_layering
+    share: 0.15
+    note: >
+      Multi-layer ownership with intra-group transfers. The distinguishing
+      signal is a real operating subsidiary with employees and trading
+      activity, and ownership that is disclosed rather than layered.

@@ -1,0 +1,19 @@
+# Phase 1 release target. ~100K entities over 12 months, ~30M transactions.
+name: mvp
+seed: 20260915
+
+population:
+  individuals: 90_000
+  legal_entities: 10_000
+
+window:
+  start: 2025-01-01
+  end: 2025-12-31
+
+institution: institution.yaml
+typologies: typologies.yaml
+
+output:
+  dir: out/mvp
+  row_group_size: 131_072
+  compression: zstd

@@ -1,0 +1,125 @@
+name: fincrime
+
+services:
+  neo4j:
+    # Enterprise is a hard requirement, not a convenience: the release ships
+    # fully labeled and relies on Enterprise RBAC to hide :GroundTruth from
+    # demo users (PHASE1-PLAN.md D5'). Community has no role-based deny rules.
+    image: ${NEO4J_IMAGE:-neo4j:2026.07-enterprise}
+    container_name: fincrime-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-fincrimefincrime}
+      NEO4J_ACCEPT_LICENSE_AGREEMENT: "eval"
+      NEO4J_PLUGINS: '["apoc","graph-data-science"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*,gds.*"
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP:-8G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-4G}
+      # Headroom for the mvp preset (~30M transaction nodes, ~100M edges).
+      # Both are overridable in .env for the dev preset on a small machine.
+
+      # GDS Enterprise. Without this the plugin still loads but runs in the
+      # community tier, which caps graph projections and blocks several
+      # algorithms outright - including ones the mule-network demo needs.
+      # Config key is gds.enterprise.license_file; in env form dots become '_'
+      # and literal underscores become '__'.
+      NEO4J_gds_enterprise_license__file: /licenses/gds.license
+
+      # neo4j-admin import writes into the import dir; the bulk load path
+      # (D1) stages CSV here rather than going through Cypher.
+      NEO4J_server_directories_import: /import
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      # Staging area for neo4j-admin import. Bind-mounted so `fincrime
+      # export-csv` on the host writes straight into the container's view.
+      - ./out/import:/import
+      - ./neo4j:/cypher:ro
+      # Licenses are referenced, never copied into the image or committed.
+      - ${GDS_LICENSE_PATH:-./gds.license}:/licenses/gds.license:ro
+    healthcheck:
+      # cypher-shell against the real bolt endpoint; HTTP 200 lies during startup.
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p ${NEO4J_PASSWORD:-fincrimefincrime} 'RETURN 1' || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # Neo4j Enterprise Studio - Query, Bloom, and Dashboards. This is the customer
+  # demo surface, so it is part of M0 rather than a later addition. Both services
+  # sit behind the `nes` profile so `make up` stays fast; bring them up with
+  # `make nes`.
+  # ---------------------------------------------------------------------------
+
+  # One-shot provisioner: Studio service account, asset database, Bloom grants,
+  # then the fincrime database and its demo/admin roles.
+  nes-init:
+    image: ${NEO4J_IMAGE:-neo4j:2026.07-enterprise}
+    container_name: fincrime-nes-init
+    profiles: ["nes"]
+    depends_on:
+      neo4j:
+        condition: service_healthy
+    volumes:
+      - ./neo4j:/cypher:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >
+        cypher-shell -a neo4j://neo4j:7687
+        -u neo4j -p ${NEO4J_PASSWORD:-fincrimefincrime}
+        -d system -f /cypher/nes-setup.cypher
+    restart: "no"
+
+  enterprise-studio:
+    image: neo4j/enterprise-studio:latest
+    container_name: fincrime-nes
+    profiles: ["nes"]
+    depends_on:
+      nes-init:
+        condition: service_completed_successfully
+    # Studio exits if it loses its asset store, which happens whenever Neo4j
+    # restarts under it. Without a restart policy it stays dead and the first
+    # you know about it is a blank page at :8080 mid-demo.
+    restart: unless-stopped
+    ports:
+      - "${NES_PORT:-8080}:8080"
+    volumes:
+      # Referenced, not copied - a license is a secret.
+      - ${NES_LICENSE_PATH:-./nes.license}:/licenses/nes.license:ro
+    environment:
+      NES_license_path: "/licenses/nes.license"
+      NES_server_port: "8080"
+
+      # Where Studio persists dashboards, saved queries, and Perspectives.
+      # Must match neo4j/nes-setup.cypher.
+      NES_assetStore_default_uri: "neo4j://neo4j:7687"
+      NES_assetStore_default_database: "tools-storage"
+      NES_assetStore_default_authentication_basic_username: "tools_service"
+      NES_assetStore_default_authentication_basic_password: "toolspassword"
+
+      # The deployment users query. Proxy mode over the HTTP connector.
+      NES_neo4jDeployments_fincrime_name: "fincrime"
+      NES_neo4jDeployments_fincrime_uri: "http://neo4j:7474"
+    healthcheck:
+      # The Studio image ships no curl or wget, so the documented curl probe
+      # cannot run here. Check the listener on 8080 (hex 1F90) via /proc instead.
+      test: ["CMD-SHELL", "grep -q ':1F90 ' /proc/net/tcp6 /proc/net/tcp 2>/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  # Explicitly named rather than left to compose's `<project>_<volume>`
+  # default. A stale `fincrime_neo4j-data` from an unrelated earlier project
+  # already exists on this machine, and Neo4j silently ignores NEO4J_AUTH when
+  # it finds an initialized auth store - which presents as an endlessly
+  # unhealthy container authenticating against a password nobody remembers.
+  neo4j-data:
+    name: fincrime-sim-neo4j-data
+  neo4j-logs:
+    name: fincrime-sim-neo4j-logs

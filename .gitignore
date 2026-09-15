@@ -1,0 +1,18 @@
+out/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.DS_Store
+
+# Licenses are secrets. Referenced by path, never committed.
+*.license
+.env
+
+# Release payloads are large binaries; manifests and docs alongside them are
+# committed so a release stays describable without its data.
+releases/**/*.parquet
+releases/**/*.dump
+releases/**/*.csv
+releases/**/*.csv.gz
