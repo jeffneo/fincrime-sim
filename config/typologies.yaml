@@ -84,10 +84,11 @@ typologies:
         shared_director_rate: 0.15
         shared_address_rate: 0.1
         decoy_activity_per_shell: [30, 90] # shells with real-looking trade
-      # Phase 1 is single-institution, so a hop that would leave the bank
-      # terminates at a synthetic correspondent counterparty rather than being
-      # dropped. Phase 2 replaces this with a real second institution.
-      external_hop_placeholder: true
+    # Phase 1 is single-institution, so a hop that would leave the bank
+    # terminates at an external counterparty rather than being dropped - the
+    # transaction exists with no TO edge, which is exactly what the bank sees.
+    # Phase 2 replaces this with a real second institution.
+    external_hop_placeholder: true
 
   # T3 - money mule network. Recently-opened accounts on shared devices,
   # fan-in from unrelated payers, forwarding to a small collector set.

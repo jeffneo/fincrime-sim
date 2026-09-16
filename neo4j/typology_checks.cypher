@@ -85,3 +85,71 @@ RETURN r.ring_id AS ring,
          / size(trueMembers)
        ) AS recallPct
 ORDER BY tier, ring;
+
+// ---------------------------------------------------------------------------
+// T2 shell layering - a directed chain of corporate pass-through
+// ---------------------------------------------------------------------------
+//
+// Money entering one company and leaving the next within days, repeatedly.
+// Stated without labels: consecutive wire hops between business accounts where
+// each hop follows its predecessor closely and carries most of its value.
+
+MATCH (a:Account)<-[:FROM]-(t1:Transaction)-[:TO]->(b:Account)
+      <-[:FROM]-(t2:Transaction)-[:TO]->(c:Account)
+WHERE t1.channel = 'wire' AND t2.channel = 'wire'
+  AND t2.booked_at > t1.booked_at
+  AND duration.between(t1.booked_at, t2.booked_at).days <= 30
+  AND t2.amount_usd > 0.7 * t1.amount_usd
+  AND a <> c
+RETURN b.account_id AS middleHop,
+       count(*) AS chains,
+       round(max(t1.amount_usd)) AS largestInUsd
+ORDER BY largestInUsd DESC
+LIMIT 50;
+
+// ---------------------------------------------------------------------------
+// T3 mule network - fan-in to many, fan-out to few, over shared infrastructure
+// ---------------------------------------------------------------------------
+//
+// The device link is what makes this a graph problem: each mule alone is a
+// person who received some transfers and sent some on. Households legitimately
+// share devices too, so this returns those as well - which is the point.
+
+MATCH (d:Device)<-[:VIA_DEVICE]-(t:Transaction)-[:FROM]->(a:Account)
+WITH d, collect(DISTINCT a) AS accounts
+WHERE size(accounts) >= 3
+UNWIND accounts AS a
+MATCH (a)<-[:FROM]-(out:Transaction)-[:TO]->(collector:Account)
+WHERE out.txn_class = 'p2p_transfer'
+WITH d, collector, count(DISTINCT a) AS feeders, sum(out.amount_usd) AS moved
+WHERE feeders >= 3
+RETURN d.device_id AS sharedDevice,
+       collector.account_id AS collector,
+       feeders,
+       round(moved) AS movedUsd
+ORDER BY feeders DESC, movedUsd DESC
+LIMIT 50;
+
+// ---------------------------------------------------------------------------
+// T4 card-not-present fraud - one device across unrelated cards
+// ---------------------------------------------------------------------------
+//
+// Cross-card reuse, not per-card velocity. A single card's burst is a holiday;
+// the same device on cards belonging to unrelated people is not.
+
+// The cards must belong to DIFFERENT customers. A household's shared tablet
+// touching three cards from the same two people is not fraud, and without the
+// distinct-owner condition this query returns mostly those.
+MATCH (d:Device)<-[:VIA_DEVICE]-(t:Transaction)-[:ON_CARD]->(card:Card)
+      <-[:FROM]-()  // card is funded by an account
+WHERE t.channel = 'card_cnp'
+WITH d, t, card
+MATCH (owner)-[:OWNS]->(:Account)<-[:FROM]-(t)
+WITH d,
+     count(DISTINCT card) AS cardCount,
+     count(DISTINCT owner) AS ownerCount,
+     count(t) AS charges
+WHERE cardCount >= 3 AND ownerCount >= 3
+RETURN d.device_id AS device, cardCount, ownerCount, charges
+ORDER BY cardCount DESC
+LIMIT 50;

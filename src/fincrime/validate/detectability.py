@@ -94,6 +94,9 @@ def customer_features(dataset_dir: Path) -> pl.DataFrame:
     )
 
     cash_in = (pl.col("channel") == "cash") & (pl.col("direction") == "credit")
+    peer = pl.col("txn_class") == "p2p_transfer"
+    peer_in = peer & (pl.col("direction") == "credit")
+    peer_out = peer & (pl.col("direction") == "debit")
     return (
         base.group_by("owner_id")
         .agg(
@@ -121,6 +124,22 @@ def customer_features(dataset_dir: Path) -> pl.DataFrame:
             pl.col("booked_at").max().alias("last_seen"),
             pl.col("booked_at").dt.hour().mean().alias("mean_hour"),
             pl.col("booked_at").dt.hour().std().fill_null(0.0).alias("sd_hour"),
+            # Burst and concentration features. Without these the feature set
+            # is a year of averages, in which a fifteen-transaction card burst
+            # or a six-week mule funnel simply does not appear - the set was
+            # built for structuring, whose signal survives averaging, and never
+            # extended when the other three typologies arrived.
+            pl.col("amount_usd").filter(peer_in).sum().alias("peer_in_usd"),
+            pl.col("amount_usd").filter(peer_out).sum().alias("peer_out_usd"),
+            pl.col("amount_usd")
+            .filter(pl.col("channel") == "card_cnp")
+            .max()
+            .fill_null(0.0)
+            .alias("max_cnp_usd"),
+            pl.col("amount_usd").filter(pl.col("channel") == "card_cnp").count().alias("cnp_count"),
+            pl.col("amount_usd").filter(pl.col("channel") == "wire").sum().alias("wire_usd"),
+            pl.col("booked_at").diff().min().dt.total_seconds().alias("min_gap_s"),
+            pl.col("booked_at").dt.date().n_unique().alias("active_dates"),
         )
         .with_columns(
             (pl.col("outflow_usd") / (pl.col("inflow_usd") + 1.0)).alias("pass_through_ratio"),
@@ -129,6 +148,11 @@ def customer_features(dataset_dir: Path) -> pl.DataFrame:
                 "near_threshold_share"
             ),
             (pl.col("sd_usd") / (pl.col("mean_usd") + 1.0)).alias("amount_cv"),
+            (pl.col("peer_out_usd") / (pl.col("peer_in_usd") + 1.0)).alias("peer_funnel_ratio"),
+            (pl.col("max_cnp_usd") / (pl.col("mean_usd") + 1.0)).alias("cnp_amount_ratio"),
+            (pl.col("txn_count") / pl.max_horizontal(pl.col("active_dates"), pl.lit(1))).alias(
+                "txns_per_active_day"
+            ),
             (pl.col("last_seen") - pl.col("first_seen")).dt.total_days().alias("active_days"),
         )
         .drop("first_seen", "last_seen")
@@ -243,6 +267,7 @@ def run(
         txn_from=pl.scan_parquet(graph / "txn_from.parquet"),
         accounts=pl.read_parquet(graph / "account.parquet"),
         account_owner=owner,
+        card_account=pl.read_parquet(graph / "card.parquet").select("card_id", "account_id"),
     )
 
     joined = features.join(rules, on="owner_id", how="left").with_columns(

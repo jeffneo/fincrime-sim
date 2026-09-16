@@ -60,15 +60,49 @@ def test_prevalence_is_within_the_configured_rate(injected):
     assert actual <= target * 1.5, f"prevalence {actual:.4f} overshoots target {target}"
 
 
-def test_every_ring_has_a_collector_and_multiple_smurfs(injected):
+def test_every_structuring_ring_has_a_collector_and_multiple_smurfs(injected):
+    """The star shape, checked per typology rather than across all rings.
+
+    Each typology has its own topology - a layering chain has no collector and
+    a CNP ring has no smurfs - so a shape assertion has to name the typology it
+    is about.
+    """
     _, _, _, result = injected
     by_ring: dict[str, list[str]] = {}
     for label in result.labels:
-        if label.subject_type == "account":
+        if label.subject_type == "account" and label.typology == "structuring":
             by_ring.setdefault(label.ring_id, []).append(label.role)
+    assert by_ring, "no structuring rings"
     for ring_id, roles in by_ring.items():
         assert roles.count("collector") == 1, f"{ring_id} has {roles.count('collector')} collectors"
         assert roles.count("smurf") >= 2, f"{ring_id} has too few smurfs"
+
+
+def test_layering_rings_form_a_chain(injected):
+    """A chain, not a star: source, tiers, sink, each a distinct account."""
+    _, _, _, result = injected
+    by_ring: dict[str, list[str]] = {}
+    for label in result.labels:
+        if label.subject_type == "account" and label.typology == "shell_layering":
+            by_ring.setdefault(label.ring_id, []).append(label.role)
+    for ring_id, roles in by_ring.items():
+        assert "shell_source" in roles, f"{ring_id} has no source"
+        assert "shell_sink" in roles, f"{ring_id} has no sink"
+        assert len(roles) >= 2, f"{ring_id} is not a chain"
+
+
+def test_cnp_rings_label_the_cardholder_as_a_victim(injected):
+    """The cardholder did nothing wrong.
+
+    Conflating victim and perpetrator would make a scorer treat flagging the
+    victim's account - the correct outcome for the bank - the same as finding
+    the fraudster, which is a different question entirely.
+    """
+    _, _, _, result = injected
+    roles = {label.role for label in result.labels if label.typology == "cnp_fraud"}
+    if roles:
+        assert "victim" in roles
+        assert "compromised_card" in roles
 
 
 def test_no_account_is_used_by_two_rings(injected):
@@ -265,6 +299,7 @@ def test_labels_resolve_to_real_subjects(generated):
         "account": set(pop.account_ids.tolist()),
         "individual": set(pop.tables["individual"]["individual_id"].to_list()),
         "legal_entity": set(pop.tables["legal_entity"]["entity_id"].to_list()),
+        "card": set(pop.card_ids.tolist()),
         "transaction": set(txn["txn_id"].to_list()),
     }
     for subject_type, group in label_rows.group_by("subject_type"):

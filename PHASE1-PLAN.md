@@ -125,7 +125,7 @@ Each exits on a runnable check, and every milestone runs at `dev` scale.
 | **M0** ✅ | Foundation: uv project, CLI skeleton, `rng.py`, `schema.py`, Neo4j Enterprise + GDS + Studio compose, constraints, RBAC roles, test suite | **Met.** `generate --scale dev` emits 33 schema-valid Parquet tables; `make all` bulk-loads and applies 15 constraints / 29 indexes; GDS 2026.07.0 and Studio reachable; 110 unit tests and 9 live RBAC tests green |
 | **M1** ✅ | Population + background behavior | **Met.** 10K entities / 3 months / 1.37M txns, zero typologies. `fincrime validate` runs 15 statistical and privacy checks, each with a stated band and reason, and passes at both `dev` and `mvp` scale. Generation streams per month: `mvp` builds 55.4M transactions in 2.9 min at 9.0GB peak |
 | **M2** ✅ | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | **Met.** 15 rings / 314 labels at `mvp`; graph loads with ground truth; a structure-only Cypher query recovers the stars *as the demo role*; both baselines run. Calibration: rules recall 0.00 / 0.46 / 0.60 at 1/5/10% budgets, GBM AUC-PR 0.42 (376× lift) |
-| **M3** | T2, T3, T4 + difficulty tiers | All 4 typologies inject at configured prevalence; per-tier detectability measurably ordered easy > medium > hard |
+| **M3** ◐ | T2, T3, T4 + difficulty tiers | **Partially met.** All four typologies inject at the configured prevalence, produce the documented topology, and are recovered by their Cypher checks. Tier ordering holds for all four; separation clears the 0.15 gate for structuring (0.36) and mule networks (0.36) but not for shell layering (0.07) or CNP fraud (0.15). Two typologies sit below the GBM learnability floor — see §8 |
 | **M4** ✅ | Hard negatives + blending | **Met.** Four generators; 537 look-alikes against 112 positives at `mvp`. Look-alikes outnumber true positives 4:1 *inside the alert queue*. Difficulty tiers separate cleanly: recall 0.59 easy / 0.45 medium / 0.15 hard |
 | **M5** | Validation + calibration loop | Full report green against §7 acceptance bands; knobs tuned to hit them |
 | **M6** | MVP release at `mvp` scale + case-narrative stub | `releases/<version>/`: 100K/12mo dataset, Parquet + Neo4j dump, data dictionary, typology doc, per-ring narrative stub, reproducibility manifest (seed + config hash + git SHA). Demo-role walkthrough passes without reading ground truth |
@@ -168,6 +168,38 @@ Starting targets. M5 measures them; expect to revise the bands once with justifi
 - Data dictionary and typology doc generated from `schema.py`, not hand-maintained.
 
 ---
+
+## 7a. Open calibration items (M3 → M5)
+
+Measured at `mvp`, 63–112 positives per typology:
+
+| Typology | rules recall @1/5/10% | tier recall e/m/h | GBM AUC-PR |
+|---|---|---|---|
+| structuring | 0.08 / 0.49 / 0.62 | 0.59 / 0.49 / 0.23 | 0.447 |
+| mule_network | 0.08 / 0.36 / 0.53 | 0.50 / 0.33 / 0.14 | 0.757 |
+| shell_layering | 0.18 / 0.39 / 0.61 | 0.41 / 0.39 / 0.33 | 0.013 |
+| cnp_fraud | 0.02 / 0.10 / 0.16 | 0.15 / 0.00 / 0.00 | 0.008 |
+
+Three items remain for the M5 loop, and the first is the interesting one:
+
+1. **Shell layering and CNP fraud fall below the GBM floor (0.10).** This is a
+   finding about the *baseline*, not necessarily about the data: the baseline
+   is a tabular model over customer-level yearly aggregates, and neither of
+   those typologies is a customer-level phenomenon. Layering is a property of a
+   path through several companies; card fraud is a property of a burst on one
+   card. The Cypher topology checks recover layering chains perfectly well, and
+   the rules baseline finds 0.39 of them at a 5% budget — so the signal is
+   present and reachable, just not through a year of per-customer means. M5
+   either adds graph-derived features to the baseline or records this as the
+   dataset's point: these are the typologies a tabular model cannot see.
+2. **Shell-layering tiers barely separate (0.07).** The hard tier is not much
+   harder than the easy one in practice. The knobs that should do the work —
+   round-number bias, shared directors, decoy activity — are mostly *graph*
+   properties, and the rule that actually catches these chains is the
+   high-risk-jurisdiction wire, which every tier trips equally.
+3. **Mule and layering look-alike ratios are below 2** (0.11 and 0.97). The
+   treasury-hub generator produces only a handful of instances because it needs
+   employers with four or more staff banking here, which is rare at any preset.
 
 ## 8. Risks
 

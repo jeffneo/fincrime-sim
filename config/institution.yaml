@@ -36,9 +36,20 @@ controls:
     # people generally spend what they earn - so a real pass-through rule also
     # requires the flow to be worth looking at.
     rapid_movement_min_inflow_usd: 150_000
+    # Retail-scale mule rule. The commercial pass-through floor above is
+    # six figures, which makes it blind to a personal account funnelling a few
+    # thousand at a time - the scale mules actually operate at.
+    peer_funnel_min_usd: 5_000
+    # Peer money out over peer money in, within the same window. Compared
+    # against peer flow rather than the account's total, which is dominated by
+    # salary and rent for exactly the retail customers this rule is about.
+    peer_funnel_out_ratio: 0.7
     new_account_high_velocity_days: 90
     wire_to_high_risk_jurisdiction_usd: 5_000
     card_velocity_txn_per_hour: 6
+    # A CNP charge this many times the card's own median ticket. Relative, not
+    # absolute: a large charge is only anomalous for a card that never sees one.
+    cnp_amount_ratio: 12.0
 
   # Alert budget for scoring. A real AML team can work a fixed number of
   # alerts, which is why recall is reported at a budget rather than as a

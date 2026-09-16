@@ -152,9 +152,30 @@ RULES: tuple[Rule, ...] = (
         "business in those markets.",
     ),
     Rule(
+        "peer_transfer_funnel",
+        "A personal account receiving peer transfers above a modest threshold "
+        "in the lookback window and passing most of the value straight on.",
+        "Rapid movement of funds through personal accounts - a standard mule "
+        "rule, and deliberately set at retail scale. The commercial "
+        "pass-through rule carries a six-figure throughput floor to stop it "
+        "firing on everyone, which makes it blind to a mule moving a few "
+        "thousand pounds at a time. It also fires on anyone splitting rent or "
+        "settling up after a holiday.",
+    ),
+    Rule(
         "card_velocity_burst",
-        "Card transactions exceeding the per-hour velocity limit.",
-        "Card testing and stolen-PAN bursts. Also a customer on holiday.",
+        "A single card exceeding the per-hour velocity limit.",
+        "Card testing and stolen-PAN bursts. Measured per card, which is how "
+        "an issuer monitors: the cards in one fraud batch belong to unrelated "
+        "customers, so a per-customer velocity rule cannot see the batch at "
+        "all. Also fires on a customer working through a checkout.",
+    ),
+    Rule(
+        "cnp_amount_anomaly",
+        "A card-not-present charge far above that card's own usual ticket.",
+        "Amount relative to the card's history rather than an absolute floor, "
+        "because a large charge is only odd for a cardholder who never makes "
+        "them. Fires on anyone buying a flight for the first time.",
     ),
 )
 
@@ -200,6 +221,52 @@ def _rolling_cash_peaks(base: pl.LazyFrame, threshold: float, lookback_days: int
     )
 
 
+def _rolling_peer_peaks(base: pl.LazyFrame, lookback_days: int) -> pl.DataFrame:
+    """Peak peer-transfer credits in any rolling window, per customer.
+
+    Same reasoning as the cash version: mule activity is a burst, and a
+    whole-window total averages it into invisibility.
+    """
+    peer = (
+        base.filter(pl.col("txn_class") == "p2p_transfer")
+        .select("owner_id", "booked_at", "amount_usd", "direction")
+        .sort("booked_at")
+        .collect()
+    )
+    if peer.height == 0:
+        return pl.DataFrame(
+            schema={
+                "owner_id": pl.String,
+                "peak_peer_in_usd": pl.Float64,
+                "peak_peer_in_count": pl.UInt32,
+                "peer_funnel_ratio": pl.Float64,
+            }
+        )
+    credit = pl.col("direction") == "credit"
+    return (
+        peer.rolling(index_column="booked_at", period=f"{lookback_days}d", group_by="owner_id")
+        .agg(
+            pl.col("amount_usd").filter(credit).sum().alias("window_in"),
+            pl.col("amount_usd").filter(~credit).sum().alias("window_out"),
+            pl.col("amount_usd").filter(credit).count().alias("window_n"),
+        )
+        .group_by("owner_id")
+        .agg(
+            pl.col("window_in").max().alias("peak_peer_in_usd"),
+            pl.col("window_n").max().alias("peak_peer_in_count"),
+            # Peer money out against peer money in, inside the same window.
+            # Comparing peer inflow to the account's TOTAL outflow instead
+            # matched nothing: a mule also draws a salary and pays rent, so the
+            # whole-account ratio is dominated by ordinary life and the funnel
+            # disappears into it. Fired on 0 of 12 mules before this.
+            (
+                pl.col("window_out").max()
+                / pl.max_horizontal(pl.col("window_in").max(), pl.lit(1.0))
+            ).alias("peer_funnel_ratio"),
+        )
+    )
+
+
 def run_rules(
     controls: Controls,
     *,
@@ -207,6 +274,7 @@ def run_rules(
     txn_from: pl.LazyFrame,
     accounts: pl.DataFrame,
     account_owner: pl.DataFrame,
+    card_account: pl.DataFrame,
 ) -> pl.DataFrame:
     """Score every customer against the monitoring rules.
 
@@ -269,11 +337,18 @@ def run_rules(
     )
     per_customer = per_customer.join(owner_open, on="owner_id", how="left")
 
-    per_customer = per_customer.join(
-        _rolling_cash_peaks(base, threshold, cash_lookback), on="owner_id", how="left"
-    ).with_columns(
-        pl.col("peak_cash_window_usd").fill_null(0.0),
-        pl.col("peak_near_threshold_count").fill_null(0),
+    per_customer = (
+        per_customer.join(
+            _rolling_cash_peaks(base, threshold, cash_lookback), on="owner_id", how="left"
+        )
+        .join(_rolling_peer_peaks(base, cash_lookback), on="owner_id", how="left")
+        .with_columns(
+            pl.col("peak_cash_window_usd").fill_null(0.0),
+            pl.col("peak_near_threshold_count").fill_null(0),
+            pl.col("peak_peer_in_usd").fill_null(0.0),
+            pl.col("peak_peer_in_count").fill_null(0),
+            pl.col("peer_funnel_ratio").fill_null(0.0),
+        )
     )
 
     scored = per_customer.with_columns(
@@ -290,6 +365,11 @@ def run_rules(
             & (pl.col("cash_in_count") >= 3)
         ).alias("cash_structuring_aggregate"),
         (pl.col("peak_near_threshold_count") >= 3).alias("sub_threshold_clustering"),
+        (
+            (pl.col("peak_peer_in_usd") >= float(m["peer_funnel_min_usd"]))
+            & (pl.col("peak_peer_in_count") >= 3)
+            & (pl.col("peer_funnel_ratio") >= float(m["peer_funnel_out_ratio"]))
+        ).alias("peer_transfer_funnel"),
         # Pass-through needs a throughput floor as well as a ratio. Most people
         # spend roughly what they earn, so the ratio alone fired on 79% of all
         # customers - not a rule any institution would run, and it made the
@@ -315,19 +395,47 @@ def run_rules(
         ).alias("high_risk_jurisdiction_wire"),
     )
 
-    velocity = (
+    card = (
         base.filter(pl.col("channel").is_in(["card_present", "card_cnp"]))
-        .with_columns(pl.col("booked_at").dt.truncate("1h").alias("hour"))
-        .group_by(["owner_id", "hour"])
-        .len()
-        .group_by("owner_id")
-        .agg(pl.col("len").max().alias("peak_card_per_hour"))
+        .join(card_account.lazy(), on="account_id", how="inner")
+        .select("owner_id", "card_id", "amount_usd", "channel", "booked_at")
         .collect()
     )
-    scored = scored.join(velocity, on="owner_id", how="left").with_columns(
+    if card.height:
+        velocity = (
+            card.with_columns(pl.col("booked_at").dt.truncate("1h").alias("hour"))
+            .group_by(["owner_id", "card_id", "hour"])
+            .len()
+            .group_by("owner_id")
+            .agg(pl.col("len").max().alias("peak_card_per_hour"))
+        )
+        # Largest CNP charge as a multiple of that card's own median ticket.
+        anomaly = (
+            card.with_columns(pl.col("amount_usd").median().over("card_id").alias("card_median"))
+            .filter(pl.col("channel") == "card_cnp")
+            .with_columns(
+                (
+                    pl.col("amount_usd") / pl.max_horizontal(pl.col("card_median"), pl.lit(1.0))
+                ).alias("ratio")
+            )
+            .group_by("owner_id")
+            .agg(pl.col("ratio").max().alias("peak_cnp_ratio"))
+        )
+        scored = scored.join(velocity, on="owner_id", how="left").join(
+            anomaly, on="owner_id", how="left"
+        )
+    else:
+        scored = scored.with_columns(
+            pl.lit(0).alias("peak_card_per_hour"), pl.lit(0.0).alias("peak_cnp_ratio")
+        )
+
+    scored = scored.with_columns(
         (pl.col("peak_card_per_hour").fill_null(0) > int(m["card_velocity_txn_per_hour"])).alias(
             "card_velocity_burst"
-        )
+        ),
+        (pl.col("peak_cnp_ratio").fill_null(0.0) >= float(m["cnp_amount_ratio"])).alias(
+            "cnp_amount_anomaly"
+        ),
     )
 
     rule_names = [r.name for r in RULES]
@@ -364,6 +472,11 @@ def run_rules(
             _severity(
                 "rapid_pass_through", pl.col("outflow_usd") / (pl.col("inflow_usd") + 1.0), 1.0
             ),
+            _severity(
+                "peer_transfer_funnel",
+                pl.col("peak_peer_in_usd"),
+                float(m["peer_funnel_min_usd"]),
+            ),
             _severity("new_account_high_velocity", pl.col("txn_count"), 40.0),
             _severity(
                 "high_risk_jurisdiction_wire",
@@ -374,6 +487,11 @@ def run_rules(
                 "card_velocity_burst",
                 pl.col("peak_card_per_hour").fill_null(0),
                 float(m["card_velocity_txn_per_hour"]),
+            ),
+            _severity(
+                "cnp_amount_anomaly",
+                pl.col("peak_cnp_ratio").fill_null(0.0),
+                float(m["cnp_amount_ratio"]),
             ),
         ).alias("alert_severity"),
         pl.sum_horizontal([pl.col(n).cast(pl.Int32) for n in rule_names]).alias("rule_score"),
