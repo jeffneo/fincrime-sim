@@ -181,6 +181,20 @@ class RetailArchetype:
     payroll_cadence: str
     card_txn_per_month: float
     cash_withdrawals_per_month: float
+    #: Cash *deposits* per month. Load-bearing for realism: without these, an
+    #: account funded by sub-threshold cash credits is something only a
+    #: structuring smurf ever does, and T1 becomes recoverable by a single
+    #: Cypher pattern at 100% precision. Real people deposit cash - tips,
+    #: cash-paid trade work, gifts, selling something - and the tradesperson
+    #: banking a week of cash jobs is the legitimate twin of a smurf.
+    cash_deposits_per_month: float
+    #: Log-normal mu for the deposit amount, in USD.
+    cash_deposit_mu: float
+    #: Log-normal sigma. Fat on purpose for the cash-earning archetypes: the
+    #: upper tail has to reach the USD 5-10k band where structured deposits
+    #: live, or amount alone separates the classes perfectly. A contractor
+    #: banking a month of cash jobs really does deposit USD 8,000.
+    cash_deposit_sigma: float
     spend_scale: float
     #: Probability of holding a savings account alongside the checking account.
     savings_rate: float
@@ -198,6 +212,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "biweekly",
         34.0,
         1.4,
+        0.35,
+        5.2,
+        0.95,
         1.0,
         0.62,
         0.58,
@@ -211,6 +228,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "weekly",
         22.0,
         4.2,
+        2.60,
+        4.7,
+        0.85,
         0.55,
         0.24,
         0.21,
@@ -224,6 +244,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "monthly",
         46.0,
         0.9,
+        0.30,
+        6.0,
+        1.30,
         2.4,
         0.86,
         0.88,
@@ -237,6 +260,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "none",
         28.0,
         3.1,
+        5.40,
+        6.3,
+        1.45,
         0.95,
         0.44,
         0.42,
@@ -250,6 +276,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "monthly",
         16.0,
         2.2,
+        0.70,
+        5.0,
+        1.05,
         0.65,
         0.71,
         0.34,
@@ -263,6 +292,9 @@ RETAIL_ARCHETYPES: tuple[RetailArchetype, ...] = (
         "none",
         19.0,
         2.6,
+        1.30,
+        4.6,
+        0.75,
         0.32,
         0.18,
         0.14,

@@ -12,16 +12,18 @@ import json
 from pathlib import Path
 from typing import Annotated
 
+import polars as pl
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__, behavior, population
+from . import __version__, behavior, labels, population, typologies
 from .config import build_manifest, load_config, schema_digest
 from .export import datadict, neo4j_import, parquet
+from .institution import Controls
 from .rng import streams
 from .schema import ALL_NODE_TABLES, EDGE_TABLES, GROUND_TRUTH_LABEL
-from .validate import privacy, stats
+from .validate import detectability, privacy, stats
 
 app = typer.Typer(
     name="fincrime",
@@ -68,27 +70,50 @@ def generate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
         pop = population.build(cfg, rng)
     console.print(f"population · {len(pop.account_ids):,} accounts, {len(pop.card_ids):,} cards")
 
+    controls = Controls.from_config(cfg.institution)
+
+    # Typologies are planned before the stream is generated: they select hosts
+    # from the population and emit transactions bucketed by month, which the
+    # behavior model folds into each month's buffer before sorting. That is
+    # what interleaves illicit activity with the host's own normal activity
+    # rather than appending it as a separable block (spec §5.3).
+    with console.status("injecting typologies..."):
+        injected = typologies.inject(cfg, rng, pop, controls)
+    if injected.rings:
+        console.print(
+            f"typologies · {len(injected.rings)} rings, "
+            f"{injected.pending.total:,} illicit transactions"
+        )
+
+    # M4 adds hard negatives here, feeding the same structure.
+    #   injected.extend(hard_negatives.inject(cfg, rng, pop, controls))
+
     # Transactions stream to disk a month at a time; everything else is small
     # enough to write whole. Accumulating the transaction stream first peaked
     # over physical RAM at the mvp preset.
     with parquet.StreamingWriter(cfg) as writer:
         with console.status("simulating background behavior..."):
-            n_txn = behavior.simulate(
+            n_txn, resolved_tags = behavior.simulate(
                 cfg,
                 rng,
                 pop,
                 lambda txn, edges: parquet.append_transactions(writer, txn, edges),
+                pending=injected.pending,
             )
-        console.print(f"background · {n_txn:,} transactions")
-
-        # M2-M4 add their stages here, feeding the same sink. Each draws from
-        # its own named stream, so adding one never perturbs an earlier stage.
-        #   typologies.inject(cfg, rng, pop, sink)
-        #   hard_negatives.inject(cfg, rng, pop, sink)
-
+        console.print(f"transactions · {n_txn:,} total")
         streamed = writer.close()
 
-    counts = parquet.write_dataset(cfg, dict(pop.tables), skip=set(streamed))
+    ground_truth = labels.build(injected, resolved_tags)
+    labels.attach_ring_totals(
+        ground_truth,
+        pl.scan_parquet(cfg.output.dir / "graph" / "transaction.parquet")
+        .select("txn_id", "amount_usd")
+        .collect(),
+    )
+    labeled = ground_truth["typology_label"].height
+    console.print(f"ground truth · {labeled:,} labels across {ground_truth['ring'].height} rings")
+
+    counts = parquet.write_dataset(cfg, {**pop.tables, **ground_truth}, skip=set(streamed))
     counts.update(streamed)
 
     manifest_path = cfg.output.dir / "manifest.json"
@@ -131,7 +156,17 @@ def export_csv(
 
 
 @app.command()
-def validate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
+def validate(
+    scale: ScaleOpt = "dev",
+    seed: SeedOpt = None,
+    detect: Annotated[
+        bool,
+        typer.Option(
+            "--detect/--no-detect",
+            help="Run the rules and GBM detectability baselines (slower).",
+        ),
+    ] = True,
+) -> None:
     """Check a generated dataset for statistical fidelity and privacy.
 
     Exits non-zero if any check falls outside its band, so this is usable as a
@@ -147,6 +182,14 @@ def validate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
     checks = stats.run(cfg.output.dir)
     privacy_checks, violations = privacy.audit(cfg.output.dir)
     checks += privacy_checks
+
+    scores: list = []
+    if detect:
+        with console.status("running detectability baselines..."):
+            detect_checks, scores = detectability.run(
+                cfg.output.dir, Controls.from_config(cfg.institution), seed=cfg.seed % 2**31
+            )
+        checks += detect_checks
 
     table = Table(title=f"Validation — {cfg.name}", header_style="bold", show_lines=False)
     for column in ("", "check", "value", "expected", "note"):
@@ -170,6 +213,26 @@ def validate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
             f"  [red]{v.table}.{v.column}[/red] violates {v.control}: "
             f"{v.count:,} bad values, e.g. {v.sample!r}"
         )
+
+    if scores:
+        detail = Table(title="Detectability", header_style="bold")
+        for column in (
+            "typology",
+            "positives",
+            "rules recall @1% / 5% / 10%",
+            "GBM AUC-PR",
+            "lift",
+        ):
+            detail.add_column(column)
+        for s_ in scores:
+            detail.add_row(
+                s_.typology,
+                f"{s_.positives:,}",
+                " / ".join(f"{v:.2f}" for v in s_.recall_curve.values()),
+                f"{s_.gbm_auc_pr:.3f}",
+                f"{s_.lift:.0f}x",
+            )
+        console.print(detail)
 
     passed, total = stats.summarize(checks)
     console.print(f"\n{passed}/{total} checks passed")

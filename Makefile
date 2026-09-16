@@ -13,7 +13,8 @@ NEO4J_PASSWORD ?= fincrimefincrime
 NEO4J_BOLT_PORT ?= 7687
 CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
 
-.PHONY: help up down nes nes-down generate validate export load import-mount-ok all \
+.PHONY: help up down nes nes-down generate validate export load import-mount-ok \
+        clean-import all \
         check test lint rbac-check shell logs stats clean
 
 help:
@@ -95,8 +96,20 @@ load: import-mount-ok
 	$(CYPHER) -d system "START DATABASE $(DB) WAIT"
 	@echo "applying constraints..."
 	$(CYPHER) -d $(DB) -f /cypher/constraints.cypher
+	@$(MAKE) --no-print-directory clean-import
 	@echo
 	@$(MAKE) --no-print-directory stats
+
+# Staged CSV is disposable once the store is built - 14GB of it at the mvp
+# preset, against a 19GB store and 1.8GB of Parquet. The directory itself must
+# survive: it is bind-mounted into the container, and deleting it would leave
+# the container holding a deleted inode (see import-mount-ok).
+clean-import:
+	@if [ -d out/import ]; then \
+		size=$$(du -sh out/import 2>/dev/null | cut -f1); \
+		find out/import -mindepth 1 -delete; \
+		echo "cleared $$size of staged import CSV (regenerate with: make export)"; \
+	fi
 
 # `out/import` is bind-mounted into the container. Deleting the host directory
 # while the container runs leaves it holding the deleted inode, so the staged

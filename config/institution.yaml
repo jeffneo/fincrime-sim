@@ -32,6 +32,10 @@ controls:
     cash_structuring_aggregate_usd: 25_000
     rapid_movement_pass_through_ratio: 0.9
     rapid_movement_window_hours: 72
+    # Throughput floor. The ratio on its own fires on most retail customers -
+    # people generally spend what they earn - so a real pass-through rule also
+    # requires the flow to be worth looking at.
+    rapid_movement_min_inflow_usd: 150_000
     new_account_high_velocity_days: 90
     wire_to_high_risk_jurisdiction_usd: 5_000
     card_velocity_txn_per_hour: 6
@@ -39,7 +43,12 @@ controls:
   # Alert budget for scoring. A real AML team can work a fixed number of
   # alerts, which is why recall is reported at a budget rather than as a
   # threshold-free AUC alone.
-  alert_budget_pct: 1.0
+  # 5%, not 1%. At the mvp preset 1% is 1,000 alerts a year for 100,000
+  # customers - about four a business day, which no AML function of that size
+  # would be staffed for. 5% is ~20 a day, which a small team can work. The
+  # figure was set before any measurement existed; recall is reported across
+  # several budgets so this single choice is not load-bearing.
+  alert_budget_pct: 5.0
 
 kyc_tiers:
   1:

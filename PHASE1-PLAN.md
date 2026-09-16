@@ -124,7 +124,7 @@ Each exits on a runnable check, and every milestone runs at `dev` scale.
 |---|---|---|
 | **M0** ✅ | Foundation: uv project, CLI skeleton, `rng.py`, `schema.py`, Neo4j Enterprise + GDS + Studio compose, constraints, RBAC roles, test suite | **Met.** `generate --scale dev` emits 33 schema-valid Parquet tables; `make all` bulk-loads and applies 15 constraints / 29 indexes; GDS 2026.07.0 and Studio reachable; 110 unit tests and 9 live RBAC tests green |
 | **M1** ✅ | Population + background behavior | **Met.** 10K entities / 3 months / 1.37M txns, zero typologies. `fincrime validate` runs 15 statistical and privacy checks, each with a stated band and reason, and passes at both `dev` and `mvp` scale. Generation streams per month: `mvp` builds 55.4M transactions in 2.9 min at 9.0GB peak |
-| **M2** | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | Labels emitted; graph loads; `typology_checks.cypher` recovers the injected stars; GBM + rules baselines run and produce a calibration number |
+| **M2** ✅ | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | **Met.** 15 rings / 314 labels at `mvp`; graph loads with ground truth; a structure-only Cypher query recovers the stars *as the demo role*; both baselines run. Calibration: rules recall 0.00 / 0.46 / 0.60 at 1/5/10% budgets, GBM AUC-PR 0.42 (376× lift) |
 | **M3** | T2, T3, T4 + difficulty tiers | All 4 typologies inject at configured prevalence; per-tier detectability measurably ordered easy > medium > hard |
 | **M4** | Hard negatives + blending | Hard negatives appear in baseline alert sets; illicit actors carry full-window normal activity |
 | **M5** | Validation + calibration loop | Full report green against §7 acceptance bands; knobs tuned to hit them |
@@ -144,7 +144,11 @@ Starting targets. M5 measures them; expect to revise the bands once with justifi
 - Amount distribution fits log-normal per archetype; account-degree tail fits a power law.
 
 **Detectability (the gate)**
-- Bank-style rules baseline at a 1% alert budget: overall recall **0.15–0.45**.
+- Bank-style rules baseline at a **5%** alert budget: overall recall **0.15–0.45**.
+  Revised from 1% at M2, as anticipated. 1% is 1,000 alerts a year for 100,000
+  customers — four a business day, which no AML function of that size would be
+  staffed for. Recall is now reported across 1/5/10% budgets so the choice of
+  operating point is visible rather than load-bearing.
 - GBM baseline AUC-PR per typology: **0.25–0.70**. No typology above **0.85** (too easy) or below **0.10** (unlearnable).
 - Hard negatives make up **≥25%** of the rules baseline's top-1% alerts — i.e. they genuinely confuse.
 

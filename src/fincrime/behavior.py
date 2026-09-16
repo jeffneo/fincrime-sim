@@ -42,6 +42,7 @@ from .reference import (
     TXN_CLASSES,
 )
 from .rng import StreamRegistry
+from .typologies.base import PendingTransactions
 
 #: Relative transaction intensity by weekday (Mon=0). Card spend peaks Friday
 #: and Saturday; Sunday is quiet. Flat weekly activity is one of the fastest
@@ -126,6 +127,10 @@ class TxnBuffer:
     ts: list[np.ndarray] = field(default_factory=list)
     txn_class: list[np.ndarray] = field(default_factory=list)
     direction: list[np.ndarray] = field(default_factory=list)
+    #: Index into the injection run's label list, or -1. Never written to a
+    #: column - it exists only so a typology can tag rows before transaction
+    #: ids are assigned, and is resolved to real labels after assembly.
+    label_tag: list[np.ndarray] = field(default_factory=list)
 
     def add(
         self,
@@ -138,6 +143,7 @@ class TxnBuffer:
         to_account: np.ndarray | None = None,
         merchant: np.ndarray | None = None,
         card: np.ndarray | None = None,
+        label_tag: np.ndarray | None = None,
     ) -> None:
         n = len(from_account)
         if n == 0:
@@ -160,6 +166,11 @@ class TxnBuffer:
         self.ts.append(ts)
         self.txn_class.append(np.full(n, _CLASS_INDEX[txn_class], dtype=np.int8))
         self.direction.append(np.full(n, _DIRECTION_INDEX[direction], dtype=np.int8))
+        self.label_tag.append(
+            np.asarray(label_tag, dtype=np.int64)
+            if label_tag is not None
+            else np.full(n, -1, dtype=np.int64)
+        )
 
     def concat(self) -> dict[str, np.ndarray]:
         """Concatenate the month's streams, in timestamp order.
@@ -180,6 +191,7 @@ class TxnBuffer:
             "ts": np.concatenate(self.ts),
             "txn_class": np.concatenate(self.txn_class),
             "direction": np.concatenate(self.direction),
+            "label_tag": np.concatenate(self.label_tag),
         }
         order = np.argsort(out["ts"], kind="stable")
         return {k: v[order] for k, v in out.items()}
@@ -369,8 +381,14 @@ def _personal_merchant_sets(
     return picks, offsets
 
 
-def simulate(cfg: RunConfig, rng: StreamRegistry, pop: Population, sink: TxnSink) -> int:
-    """Generate the full background transaction stream into ``sink``.
+def simulate(
+    cfg: RunConfig,
+    rng: StreamRegistry,
+    pop: Population,
+    sink: TxnSink,
+    pending: PendingTransactions | None = None,
+) -> tuple[int, pl.DataFrame]:
+    """Generate the transaction stream into ``sink``.
 
     Each month is generated, assembled and handed to the sink before the next
     one starts, so peak memory is set by one month rather than by the window
@@ -379,22 +397,48 @@ def simulate(cfg: RunConfig, rng: StreamRegistry, pop: Population, sink: TxnSink
 
     Months are generated in order and every event falls inside its own month,
     so the concatenated output is chronological without a global sort.
+
+    ``pending`` carries typology transactions bucketed by month. They are added
+    to the same buffer as the background before it is sorted, so they interleave
+    by timestamp and take their ids from the same sequence. That is what stops
+    an injected transaction being identifiable by anything other than its own
+    behaviour (spec §5.3).
+
+    Returns the transaction count and a frame mapping the transaction ids of
+    tagged rows to their label index.
     """
     model = _build_model(cfg, rng, pop)
     total = 0
+    tagged: list[pl.DataFrame] = []
+
     for month_index, (month_start, n_days) in enumerate(
         month_windows(cfg.window.start, cfg.window.end)
     ):
         buf = TxnBuffer()
         _retail_month(cfg, rng, pop, model, buf, month_start, n_days, month_index)
         _business_month(cfg, rng, pop, model, buf, month_start, n_days, month_index)
+        if pending is not None:
+            for chunk in pending.for_month(month_start.year, month_start.month):
+                buf.add(**chunk)
+
         data = buf.concat()
         if not data:
             continue
-        txn, edges = _assemble(cfg, rng, pop, data, id_offset=total)
+        txn, edges, month_tags = _assemble(cfg, rng, pop, data, id_offset=total)
         sink(txn, edges)
+        if month_tags.height:
+            tagged.append(month_tags)
         total += txn.height
-    return total
+
+    resolved = (
+        pl.concat(tagged)
+        if tagged
+        else pl.DataFrame(
+            {"txn_id": [], "label_tag": []},
+            schema={"txn_id": pl.String, "label_tag": pl.Int64},
+        )
+    )
+    return total, resolved
 
 
 def simulate_to_frames(
@@ -413,6 +457,12 @@ def simulate_to_frames(
     if not txns:
         return pl.DataFrame(), {}
     return pl.concat(txns), {k: pl.concat(v) for k, v in edge_chunks.items()}
+
+
+def _resolved_tags(txn_ids: np.ndarray, tags: np.ndarray) -> pl.DataFrame:
+    """Map tagged rows to their label index, once ids exist."""
+    keep = tags >= 0
+    return pl.DataFrame({"txn_id": txn_ids[keep], "label_tag": tags[keep]})
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +573,29 @@ def _retail_month(
             direction="debit",
         )
 
+    # --- cash deposits ---
+    # The legitimate twin of a structured deposit. Without this stream, an
+    # account funded by sub-threshold cash credits is something only a smurf
+    # ever does, and T1 is recoverable by one Cypher pattern at 100% precision
+    # — measured, not assumed (tests/test_typology_checks.py).
+    r = rng.get("behavior", "cash_deposit_retail")
+    rate = np.array([a.cash_deposits_per_month for a in arch])[m.retail_arch] / 30.0
+    who, day = _poisson_events(r, rate, _day_weights(month_start, n_days))
+    if len(who):
+        mu = np.array([a.cash_deposit_mu for a in arch])[m.retail_arch][who]
+        # Wide sigma on purpose: a tradesperson banking a week of cash jobs and
+        # someone paying in a birthday cheque have to occupy the same column,
+        # and the overlap with structured amounts is where the difficulty lives.
+        sigma = np.array([a.cash_deposit_sigma for a in arch])[m.retail_arch][who]
+        amount = np.maximum(r.lognormal(mu, sigma), 20.0)
+        buf.add(
+            from_account=rows[who],
+            amount=amount,
+            ts=_timestamps(r, month_start, day, business_hours=True),
+            txn_class="cash_deposit",
+            direction="credit",
+        )
+
     # --- peer-to-peer between customers ---
     r = rng.get("behavior", "p2p")
     who, day = _poisson_events(r, np.full(len(rows), 1.6 / 30.0), _day_weights(month_start, n_days))
@@ -532,7 +605,13 @@ def _retail_month(
         buf.add(
             from_account=rows[who][keep],
             to_account=counterparty[keep],
-            amount=np.maximum(r.lognormal(3.6, 1.1, int(keep.sum())), 1.0),
+            # Fat-tailed on purpose. A narrow p2p distribution (sigma ~1.1)
+            # tops out near USD 1,000, which means no legitimate peer transfer
+            # ever reaches the size of a structuring consolidation - and
+            # "transfer > 1000" becomes a perfect classifier. Real peer
+            # payments include rent splits, paying a contractor and sending
+            # money to family, so the tail has to reach the low thousands.
+            amount=np.maximum(r.lognormal(4.2, 1.6, int(keep.sum())), 1.0),
             ts=_timestamps(r, month_start, day[keep]),
             txn_class="p2p_transfer",
             direction="debit",
@@ -763,7 +842,7 @@ def _assemble(
     data: dict[str, np.ndarray],
     *,
     id_offset: int = 0,
-) -> tuple[pl.DataFrame, dict[str, pl.DataFrame]]:
+) -> tuple[pl.DataFrame, dict[str, pl.DataFrame], pl.DataFrame]:
     n = len(data["amount"])
     # Ids continue across months, so a streamed dataset has the same ids a
     # single-pass one would.
@@ -825,7 +904,7 @@ def _assemble(
     edges["txn_via_device"], edges["txn_via_ip"] = _sessions(
         rng.get("behavior", "session"), pop, data, txn_ids, channels
     )
-    return txn, edges
+    return txn, edges, _resolved_tags(txn_ids, data["label_tag"])
 
 
 def _ctr_flags(
