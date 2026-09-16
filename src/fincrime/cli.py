@@ -17,7 +17,18 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__, behavior, hard_negatives, labels, population, typologies
+from . import (
+    __version__,
+    behavior,
+    hard_negatives,
+    labels,
+    narrative,
+    population,
+    typologies,
+)
+from . import (
+    release as release_mod,
+)
 from .config import build_manifest, load_config, schema_digest
 from .export import datadict, neo4j_import, parquet
 from .institution import Controls
@@ -112,11 +123,18 @@ def generate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
         streamed = writer.close()
 
     ground_truth = labels.build(injected, resolved_tags)
-    labels.attach_ring_totals(
-        ground_truth,
+    txn_facts = (
         pl.scan_parquet(cfg.output.dir / "graph" / "transaction.parquet")
-        .select("txn_id", "amount_usd")
-        .collect(),
+        .select("txn_id", "amount_usd", "booked_at")
+        .collect()
+    )
+    labels.attach_ring_totals(ground_truth, txn_facts.select("txn_id", "amount_usd"))
+    # Narratives last: they quote the ring totals, so they have to be built
+    # after those are filled in.
+    ground_truth["case_narrative"] = narrative.build(
+        ground_truth["ring"],
+        ground_truth["typology_label"],
+        txn_facts.select("txn_id", "booked_at"),
     )
     labeled = ground_truth["typology_label"].height
     console.print(f"ground truth · {labeled:,} labels across {ground_truth['ring'].height} rings")
@@ -272,6 +290,46 @@ def manifest(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
             }
         )
     )
+
+
+@app.command("release")
+def release_cmd(
+    scale: ScaleOpt = "mvp",
+    seed: SeedOpt = None,
+    version: Annotated[
+        str | None,
+        typer.Option("--version", help="Release directory name. Defaults to the package version."),
+    ] = None,
+    dump: Annotated[
+        Path | None,
+        typer.Option("--dump", help="Neo4j dump to include. `make release` produces one first."),
+    ] = None,
+) -> None:
+    """Assemble releases/<version>/ from a generated dataset."""
+    cfg = _resolve(scale, seed)
+    root, manifest = release_mod.assemble(cfg, version or __version__, dump=dump)
+    truth = manifest["ground_truth"]
+    total = sum(int(f["bytes"]) for f in manifest["files"])
+    console.print(f"release [bold]{manifest['release']}[/bold] → [cyan]{root}[/cyan]")
+    console.print(
+        f"  {len(manifest['files'])} files, {total / 1e9:.2f} GB · "
+        f"{manifest['row_counts'].get('transaction', 0):,} transactions"
+    )
+    console.print(
+        f"  ground truth · {truth['rings_illicit']} rings, "
+        f"{truth['rings_hard_negative']} look-alikes, "
+        f"{truth['case_narratives']} narratives"
+    )
+    if manifest["neo4j_dump"] is None:
+        console.print(
+            "  [yellow]no Neo4j dump included[/yellow] (pass --dump, or use `make release`)"
+        )
+    sha = manifest.get("git_sha") or ""
+    if str(sha).endswith("-dirty"):
+        console.print(
+            "  [yellow]built from an uncommitted tree[/yellow] - the recorded git_sha "
+            "does not reproduce this payload. Commit and re-cut before shipping it."
+        )
 
 
 @app.command("datadict")

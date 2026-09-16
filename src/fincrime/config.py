@@ -134,7 +134,31 @@ def _git_sha() -> str | None:
         )
     except (OSError, subprocess.SubprocessError):
         return None
-    return out.stdout.strip() or None if out.returncode == 0 else None
+    if out.returncode != 0:
+        return None
+    sha = out.stdout.strip()
+    if not sha:
+        return None
+
+    # Mark an uncommitted tree. A manifest whose git_sha names a commit that
+    # does not contain the code that produced the dataset is worse than no sha
+    # at all - it reads as traceable and is not. Untracked files count:
+    # an untracked module under src/ is exactly the case that breaks
+    # reproduction, and out/ and releases/ are gitignored so they do not
+    # trip this.
+    try:
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=Path(__file__).resolve().parent,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return sha
+    if status.returncode == 0 and status.stdout.strip():
+        return f"{sha}-dirty"
+    return sha
 
 
 def load_config(path: str | Path, *, seed_override: int | None = None) -> RunConfig:

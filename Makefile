@@ -26,7 +26,8 @@ CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
 .PHONY: help up down nes nes-down generate validate export load import-mount-ok \
         load-guard stamp clean-import all \
         check test lint rbac-check shell logs stats clean databases \
-        aura-guard aura-dump aura-push aura-setup aura-bench bench
+        aura-guard aura-dump aura-push aura-setup aura-bench bench \
+        release release-check
 
 help:
 	@echo "Pipeline, in order:"
@@ -46,6 +47,10 @@ help:
 	@echo "  make aura-setup            roles, deny rules and demo users on Aura"
 	@echo "  make aura-bench            time the demo query set as admin and analyst"
 	@echo "  make bench TARGET=local    same timings against the local container"
+	@echo ""
+	@echo "Release:"
+	@echo "  make release SCALE=mvp     assemble releases/<version>/ (gated on release-check)"
+	@echo "  make release-check         demo role runs the whole set; answer key unreadable"
 	@echo ""
 	@echo "  make stats / logs / shell / down"
 	@echo "  make clean                 DESTRUCTIVE: drops the graph and out/"
@@ -229,6 +234,32 @@ aura-setup: aura-guard
 # Time the demo query set. TARGET=local|aura, USER=neo4j|analyst.
 bench:
 	@bash scripts/bench-demo.sh $${TARGET:-local} $${USER_ROLE:-neo4j}
+
+# --- release ---------------------------------------------------------------
+
+VERSION ?= $(shell $(PY) -c "import fincrime; print(fincrime.__version__)")
+
+# The M6 payload. Dumps the loaded graph first, because a release without the
+# graph form is only half of what a recipient needs; the dump goes to the one
+# host-backed mount the container has.
+release: release-check
+	@mkdir -p $(AURA_DUMP_DIR)
+	$(CYPHER) -d system "STOP DATABASE $(DB) WAIT"
+	$(COMPOSE) exec -T --user neo4j neo4j neo4j-admin database dump $(DB) \
+		--to-path=/import/dumps --overwrite-destination=true
+	$(CYPHER) -d system "START DATABASE $(DB) WAIT"
+	uv run fincrime release --scale $(SCALE) --version $(VERSION) \
+		--dump $(AURA_DUMP_DIR)/$(DB).dump
+	@echo
+	@echo "Payload is large and gitignored except its docs and manifest:"
+	@du -sh releases/$(VERSION)
+
+# The M6 exit criterion: the whole demo set runs as the unprivileged role and
+# returns rows, and the answer key stays unreadable. Gates the release, so a
+# payload cannot be cut from a graph whose RBAC is broken.
+release-check:
+	@$(MAKE) --no-print-directory rbac-check
+	@GATE=1 bash scripts/bench-demo.sh local analyst
 
 aura-bench:
 	@bash scripts/bench-demo.sh aura neo4j

@@ -31,8 +31,19 @@ ACCOUNT_ID="${ACCOUNT_ID:-ACC-000043670}"
 # The demo queries are window-scoped. The mvp preset covers calendar 2025; one
 # month is the unit an analyst actually works in, and the unscoped year does
 # not return at this scale on any hardware tried so far.
-WINDOW_START="${WINDOW_START:-2025-06-01T00:00:00Z}"
-WINDOW_END="${WINDOW_END:-2025-07-01T00:00:00Z}"
+#
+# October rather than an arbitrary month: mule rings run for one to three
+# months each, spread across the year, so a window has to CONTAIN one for
+# 03_mule_shared_device to return anything. Three of them overlap October at
+# the shipped seed. An admin can list them - see the release README.
+WINDOW_START="${WINDOW_START:-2025-10-01T00:00:00Z}"
+WINDOW_END="${WINDOW_END:-2025-11-01T00:00:00Z}"
+
+# With --gate, exit non-zero if any query errors, times out, or returns no
+# rows. That is the M6 demo-role walkthrough: the whole set has to work as the
+# unprivileged role, not merely not crash.
+GATE="${GATE:-0}"
+failures=0
 
 case "$TARGET" in
   local)
@@ -117,10 +128,13 @@ for f in neo4j/demo/*.cypher; do
     # This build's cypher-shell prints JVM Unsafe warnings on some
     # invocations; they would otherwise be counted as result rows.
     rows=$(( $(grep -cvE '^(WARNING|$)' "$out") - 1 ))
-    printf '%-34s %10s  %s rows\n' "$name" "$elapsed" "$((rows < 0 ? 0 : rows))"
+    [ "$rows" -lt 0 ] && rows=0
+    printf '%-34s %10s  %s rows\n' "$name" "$elapsed" "$rows"
+    if [ "$rows" -eq 0 ]; then failures=$((failures + 1)); fi
   else
     code=$?
     elapsed=$(( $(date +%s) - start ))
+    failures=$((failures + 1))
     if [ -f "$TIMED_OUT_FLAG" ] || [ "$code" -eq 143 ] || [ "$code" -eq 124 ]; then
       printf '%-34s %10s  TIMEOUT\n' "$name" "$elapsed"
     else
@@ -133,3 +147,9 @@ for f in neo4j/demo/*.cypher; do
   if [ "$TARGET" = "aura" ]; then reap neo4j "$AURA_PASSWORD"; else reap neo4j "$NEO4J_PASSWORD"; fi
 done
 printf '\n'
+
+if [ "$GATE" = "1" ] && [ "$failures" -gt 0 ]; then
+  echo "$failures of the demo queries returned nothing or failed, as $USERNAME."
+  echo "For 03_mule_shared_device, check the window contains a mule ring."
+  exit 1
+fi

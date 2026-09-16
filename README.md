@@ -7,15 +7,21 @@ typologies — over a Neo4j property graph.
 - [Spec](financial-crime-simulator-spec.md) — product and technical spec
 - [Phase 1 plan](PHASE1-PLAN.md) — MVP scope, decisions, milestones, acceptance criteria
 
-**Status: M1 complete.** The pipeline generates a full synthetic population and
-its background transaction activity, validates it, and loads it into Neo4j. No
-typologies are injected yet — that is M2–M3, and the whole point of M1 is that
-the *background* has to be hard to separate from crime before any crime exists.
+**Status: M6 — release payload cut.** The pipeline generates a labeled
+population with four crime typologies and four hard-negative look-alikes,
+validates detectability against two baselines, loads into Neo4j, and assembles
+a self-contained release. `make release SCALE=mvp` produces it.
+
+Four typologies (structuring, shell layering, mule networks, CNP fraud) and
+four look-alikes, which deliberately outnumber the rings. Every typology clears
+the learnability floor; two of them only with graph features, which is the
+dataset's argument rather than a shortfall — see
+[PHASE1-PLAN.md §7a](PHASE1-PLAN.md).
 
 | Preset | Entities | Window | Transactions | Generation |
 |---|---|---|---|---|
-| `dev` | 10K | 3 months | 1.37M | ~5s |
-| `mvp` | 100K | 12 months | 55.4M | ~3min, 9GB peak, 1.8GB Parquet |
+| `dev` | 10K | 3 months | 1.42M | ~5s |
+| `mvp` | 100K | 12 months | 57.4M | ~3min, 9GB peak, 1.9GB Parquet |
 
 ## Quick start
 
@@ -87,6 +93,8 @@ make help
 | `make aura-push SCALE=mvp` | Dump the graph and upload it to the Aura instance in `.env` |
 | `make aura-setup` | Roles, deny rules and demo users on that Aura instance |
 | `make aura-bench` | Time the demo set on Aura, as admin and as analyst |
+| `make release SCALE=mvp` | Assemble `releases/<version>/`; gated on `release-check` |
+| `make release-check` | Demo role runs the whole query set; answer key stays unreadable |
 | `make clean` | **Destructive**: drops the graph and `out/` |
 
 Presets: `SCALE=dev` (10K entities, 3 months) and `SCALE=mvp` (100K, 12 months).
@@ -107,7 +115,10 @@ src/fincrime/
   rng.py           seed hierarchy; streams are independent, so adding a typology
                    never perturbs the background population
   config.py        config loading + the reproducibility manifest
-  export/          parquet (canonical), neo4j_import (derived), datadict
+  narrative.py     template-driven per-ring case narratives (ground truth)
+  release.py       assembles releases/<version>/ with a checksummed manifest
+  export/          parquet (canonical), neo4j_import (derived), datadict,
+                   typologydoc (generated from the generator docstrings)
 neo4j/             compose provisioning, RBAC, generated constraints
   demo/            the demo query set - analyst-runnable, time-scoped, timed
   typology_checks  topology recovery + admin scoring against the answer key
@@ -129,7 +140,12 @@ Every row is synthetic and no attribute is conditioned on any real record.
 Identifiers are drawn from ranges that can never be validly issued — SSNs in
 the never-issued 900–999 area prefix, IBANs with invalid check digits, PANs on
 a reserved test BIN, phone numbers in the NANP 555-01xx fictitious range, IPs
-in RFC 5737 documentation ranges. The generated data dictionary lists every
+in 240.0.0.0/4 (RFC 1112, reserved and never routed) and 100.64.0.0/10 (RFC
+6598 carrier-grade NAT). The RFC 5737 documentation ranges are the textbook
+choice and were rejected deliberately: 762 usable addresses across 100K
+entities would put dozens of unrelated customers behind each IP, and shared
+infrastructure across unrelated accounts is the headline mule-network signal —
+the pool would have manufactured it. The generated data dictionary lists every
 control.
 
 Ground-truth labels are research and engineering annotations. They are not

@@ -1,0 +1,302 @@
+{
+  "release": "0.1.0",
+  "fincrime_version": "0.1.0",
+  "assembled_at": "2026-09-16T20:26:40.509507+00:00",
+  "preset": "mvp",
+  "reproducibility": {
+    "seed": 20260915,
+    "config_digest": "1799380c736d372f5cdf1076f284df6f",
+    "schema_digest": "ecdd151af61c67aefb3d0eadd21b83af"
+  },
+  "git_sha": "ac839b0cacc499bba6bb4c5cfdb619c8383526ad",
+  "schema_digest_now": "ecdd151af61c67aefb3d0eadd21b83af",
+  "window": {
+    "start": "2025-01-01",
+    "end": "2025-12-31",
+    "days": 365
+  },
+  "population": {
+    "individuals": 90000,
+    "legal_entities": 10000,
+    "total_entities": 100000
+  },
+  "row_counts": {
+    "account": 148226,
+    "address": 48548,
+    "associate_of": 76696,
+    "card": 128114,
+    "case_narrative": 1199,
+    "device": 99316,
+    "director_of": 13588,
+    "employed_by": 24560,
+    "entity_bo_of_entity": 800,
+    "entity_owns_account": 13508,
+    "entity_registered_at": 10000,
+    "individual": 90000,
+    "individual_bo_of_entity": 13588,
+    "individual_has_phone": 90000,
+    "individual_owns_account": 134718,
+    "individual_resides_at": 90000,
+    "institution": 1,
+    "ip_address": 62999,
+    "jurisdiction": 26,
+    "label_subject": 146125,
+    "legal_entity": 10000,
+    "merchant": 108000,
+    "phone_number": 90000,
+    "ring": 1199,
+    "ring_member": 146125,
+    "transaction": 57406190,
+    "txn_at_merchant": 36763234,
+    "txn_from": 57406190,
+    "txn_on_card": 36763234,
+    "txn_to": 4126113,
+    "txn_via_device": 28024261,
+    "txn_via_ip": 28024261,
+    "typology_label": 146125
+  },
+  "ground_truth": {
+    "rings_illicit": 51,
+    "rings_hard_negative": 1148,
+    "case_narratives": 1199,
+    "narrative_template": "m6-stub-1"
+  },
+  "neo4j_dump": "neo4j/fincrime.dump",
+  "files": [
+    {
+      "path": "DATA_DICTIONARY.md",
+      "bytes": 22870,
+      "sha256": "a05963c0cb0b2ba5a5f3f7b8d6c76fadd78a2e4f10ed2df04f62315d9c2614f5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4822,
+      "sha256": "f5b6df786905748e0d38f554b1d3f740ea7c08b13cf94f75b16f52ef0b8cb78a"
+    },
+    {
+      "path": "TYPOLOGIES.md",
+      "bytes": 12924,
+      "sha256": "36260ecc321ae5d816e3c20b8f62ca56177e77a915a673ffd4e5c82f8bed9762"
+    },
+    {
+      "path": "neo4j/constraints.cypher",
+      "bytes": 3173,
+      "sha256": "b040bd8f6e866f478ca1f5b7243e4dfafd715f76d7191fb1664229db169e954b"
+    },
+    {
+      "path": "neo4j/fincrime.dump",
+      "bytes": 5284755583,
+      "sha256": "e6ebec454b21449b02df5bac291e68327f806c6dd65509c745c02d8530caf7ed"
+    },
+    {
+      "path": "neo4j/roles-selfhosted.cypher",
+      "bytes": 6305,
+      "sha256": "23defcdab1c6853be226e613bfa713b98fcd93fa88178ffb1298a0d892a07afc"
+    },
+    {
+      "path": "neo4j/roles.cypher",
+      "bytes": 3752,
+      "sha256": "bc065fb9cf6869c328598660e898ad306d42ef365f36bff7c08bb7766f43e3bc"
+    },
+    {
+      "path": "neo4j/typology_checks.cypher",
+      "bytes": 6857,
+      "sha256": "4c6c4b97bdd1c51260edf79c8f45e69f87c204fa6332cc753ecb2b745087d0d2"
+    },
+    {
+      "path": "parquet/graph/account.parquet",
+      "bytes": 2423386,
+      "sha256": "101f412092c6b41633a019f7de61cad2efc4d1eaff8253d967337e619170472c"
+    },
+    {
+      "path": "parquet/graph/address.parquet",
+      "bytes": 578903,
+      "sha256": "dcd76acb0ed5320198f8bb618faab79d29ad2c68bd6bec8fcddecb49e25b041d"
+    },
+    {
+      "path": "parquet/graph/associate_of.parquet",
+      "bytes": 491333,
+      "sha256": "1448eb4998f070dae6763aa3b4112b5830185a9e11fbf01397772fbe1d8abbe4"
+    },
+    {
+      "path": "parquet/graph/card.parquet",
+      "bytes": 1127801,
+      "sha256": "2317f04940b22a8cd5cd83e5c14922be4003e421238c4fa6d089679e3b4032cf"
+    },
+    {
+      "path": "parquet/graph/device.parquet",
+      "bytes": 1279375,
+      "sha256": "afcf8171bd0095c3fd0ef42f17b76212fc8f1e0b05046c229057b5e4dbee7eb6"
+    },
+    {
+      "path": "parquet/graph/director_of.parquet",
+      "bytes": 97878,
+      "sha256": "15a570316b2c40db65fa5491869985f9907d20c24c066190b668c53b1bd72de9"
+    },
+    {
+      "path": "parquet/graph/employed_by.parquet",
+      "bytes": 341069,
+      "sha256": "cda1b341b7e5c02ac5ceeb1f71811dea5f9ef2ef0a9885a5f33ff7e482d1916b"
+    },
+    {
+      "path": "parquet/graph/entity_bo_of_entity.parquet",
+      "bytes": 6365,
+      "sha256": "ac2275b78b49e389939fb3e4ef523decea8e6c7b93a5f17307b3785fc73f0505"
+    },
+    {
+      "path": "parquet/graph/entity_owns_account.parquet",
+      "bytes": 100469,
+      "sha256": "1c26b10a3d09d61d154da1b4ad295fcd7b0bb3f46159473ae5e2424eb4db0ff9"
+    },
+    {
+      "path": "parquet/graph/entity_registered_at.parquet",
+      "bytes": 48166,
+      "sha256": "fa1e159358c6c6c40ebba0507a7c72dd31add264d2c010eafed2d84521de4af8"
+    },
+    {
+      "path": "parquet/graph/individual.parquet",
+      "bytes": 2698920,
+      "sha256": "62e65c13fe3981aaae9add50fff5ca5b097995e4972c3e980c8a2d3e2c1b4a77"
+    },
+    {
+      "path": "parquet/graph/individual_bo_of_entity.parquet",
+      "bytes": 98526,
+      "sha256": "ad31c5962a7a8858c9acdf102f6e7ce98d424a9140b840185e30a25fc7916065"
+    },
+    {
+      "path": "parquet/graph/individual_has_phone.parquet",
+      "bytes": 296410,
+      "sha256": "cbe1079ad9d9674893bfbf932b64a45b99516149de7a67cd0183048471ddf55f"
+    },
+    {
+      "path": "parquet/graph/individual_owns_account.parquet",
+      "bytes": 650819,
+      "sha256": "3f4e3f36c390bf9106fcf56a9bb4191811c490b09e22d9b9fce98aaf570cc3c8"
+    },
+    {
+      "path": "parquet/graph/individual_resides_at.parquet",
+      "bytes": 301996,
+      "sha256": "651543cf87cb6dbe0113a1c9ab8e7f2b550845820ac0996a1607b058717f52fe"
+    },
+    {
+      "path": "parquet/graph/institution.parquet",
+      "bytes": 1377,
+      "sha256": "8c5ae2cd07cd39d27d1ac3a1a6357e0ca46eadd7a9d43153671aaa862a90a992"
+    },
+    {
+      "path": "parquet/graph/ip_address.parquet",
+      "bytes": 665017,
+      "sha256": "77a8a99b68e0c039dee128ca88a33a04d28ffee77aa13423ded08dec509af0b6"
+    },
+    {
+      "path": "parquet/graph/jurisdiction.parquet",
+      "bytes": 1452,
+      "sha256": "6c125557e135a542ee638af0debcebf965ceb8abb3ddf791dce3ac6cec91b705"
+    },
+    {
+      "path": "parquet/graph/legal_entity.parquet",
+      "bytes": 356106,
+      "sha256": "e00cbdaafbc54c50f673fc065e17e933a5ae0cf1a3176f204d9cf7fb64d7baaa"
+    },
+    {
+      "path": "parquet/graph/merchant.parquet",
+      "bytes": 424065,
+      "sha256": "2ee10d31bf3c25463be36af4936e244dd9cc3693648b8425956a0cfaaca12266"
+    },
+    {
+      "path": "parquet/graph/phone_number.parquet",
+      "bytes": 289823,
+      "sha256": "bb46e382d0ff3ce6572ca82907feb6452dad244cae029797900c5d312901e69f"
+    },
+    {
+      "path": "parquet/graph/transaction.parquet",
+      "bytes": 808397089,
+      "sha256": "d2b03b878273f46f7aa1790ac78bc5dd6a6c0f90ec74ef3914a18204b224c87e"
+    },
+    {
+      "path": "parquet/graph/txn_at_merchant.parquet",
+      "bytes": 187696777,
+      "sha256": "aced126d32ef3291a89c201e2e6ae6d67c65edc5427fa784dbaf8e848e219bd2"
+    },
+    {
+      "path": "parquet/graph/txn_from.parquet",
+      "bytes": 289364345,
+      "sha256": "50575e58e5260aee4af03e93b82292e743eaa524772fc6711a9066cf2e5a664a"
+    },
+    {
+      "path": "parquet/graph/txn_on_card.parquet",
+      "bytes": 230760398,
+      "sha256": "4c39289df88e2f9be51332a72b328333d0fed5a8f01332c0bf917d78bf8d1630"
+    },
+    {
+      "path": "parquet/graph/txn_to.parquet",
+      "bytes": 32540215,
+      "sha256": "19982e082fc7506c9de6744c0bd245abdfe2772b450d5df3017e7c7789a32b5b"
+    },
+    {
+      "path": "parquet/graph/txn_via_device.parquet",
+      "bytes": 185760562,
+      "sha256": "ac482a621b4db188971a7759a806b972d3f6377b285afc030101324303b58e4d"
+    },
+    {
+      "path": "parquet/graph/txn_via_ip.parquet",
+      "bytes": 172960322,
+      "sha256": "c04630216a8fed9c9ffd3ea76aa11c1f77b841882aed3a9e1e9368b0c4e03436"
+    },
+    {
+      "path": "parquet/ground_truth/case_narrative.parquet",
+      "bytes": 24942,
+      "sha256": "5439d8003cceeb8c708b7bb48449c7734303b597618e6ab97bdb90f0fbedf815"
+    },
+    {
+      "path": "parquet/ground_truth/label_subject.parquet",
+      "bytes": 962182,
+      "sha256": "19d59ea547f529933637a663221a9739081e3b5c155ce44163a78389a625a34e"
+    },
+    {
+      "path": "parquet/ground_truth/ring.parquet",
+      "bytes": 17480,
+      "sha256": "ebb8da055e63d312f9048f9b768a1fdc554d8d96ecf17a8fcc74b2a17ff2dde2"
+    },
+    {
+      "path": "parquet/ground_truth/ring_member.parquet",
+      "bytes": 200258,
+      "sha256": "fced41b7c87bf551b522c7562c68d3c6e38900673ab1c2b1104ba98533b671e4"
+    },
+    {
+      "path": "parquet/ground_truth/typology_label.parquet",
+      "bytes": 971530,
+      "sha256": "aafc14fed29ec47e65ff8f9ea30e866fcdcdedd64b917faf71a96f56af7a9b91"
+    },
+    {
+      "path": "queries/01_structuring_recovery.cypher",
+      "bytes": 2365,
+      "sha256": "8e44cbb2829b54958572b0a8a3dc12a2e5efef62dd88b626428464622c10ffc8"
+    },
+    {
+      "path": "queries/02_layering_chains.cypher",
+      "bytes": 1044,
+      "sha256": "62ef6fe2c717927148a2e8c30b08e15b55e25abe9c8e45f0929af5cfc528b6b9"
+    },
+    {
+      "path": "queries/03_mule_shared_device.cypher",
+      "bytes": 1953,
+      "sha256": "c894f566b018f388819d6d9201ea1f63b5bc4adb8d130b2b4ccb61f9f90cced3"
+    },
+    {
+      "path": "queries/04_cnp_device_reuse.cypher",
+      "bytes": 1098,
+      "sha256": "98b751de6d2b904ad8383ac2d9160ff8310b27560d922cfafdf17a3895d7d947"
+    },
+    {
+      "path": "queries/05_entity_drilldown.cypher",
+      "bytes": 731,
+      "sha256": "59c97410dd8bf8a99dc3d1970af80032d10fb880151ce02f3901c1168e946017"
+    },
+    {
+      "path": "queries/06_ctr_same_day_cash.cypher",
+      "bytes": 928,
+      "sha256": "5efcb2e8bee28d593472e5a9f299697d20c091c6fce4f343b9743fe82f0b65a0"
+    }
+  ]
+}
