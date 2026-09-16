@@ -6,16 +6,26 @@ SHELL := /bin/bash
 -include .env
 export
 
+PY := uv run --quiet python3
 COMPOSE := docker compose
 SCALE ?= dev
+
+# One database per preset. A load is a whole-store replacement
+# (--overwrite-destination), so sharing a database name between presets means a
+# dev smoke test silently destroys the mvp graph - which is exactly what
+# happened once. Enterprise multi-database makes keeping both cheap.
+ifeq ($(SCALE),mvp)
 DB ?= fincrime
+else
+DB ?= fincrime-$(SCALE)
+endif
 NEO4J_PASSWORD ?= fincrimefincrime
 NEO4J_BOLT_PORT ?= 7687
 CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
 
 .PHONY: help up down nes nes-down generate validate export load import-mount-ok \
-        clean-import all \
-        check test lint rbac-check shell logs stats clean
+        load-guard stamp clean-import all \
+        check test lint rbac-check shell logs stats clean databases
 
 help:
 	@echo "Pipeline, in order:"
@@ -34,6 +44,8 @@ help:
 	@echo "  make clean                 DESTRUCTIVE: drops the graph and out/"
 	@echo ""
 	@echo "Presets: SCALE=dev (10K entities, 3mo) | SCALE=mvp (100K, 12mo)"
+	@echo "Each preset loads into its own database: mvp -> fincrime, dev -> fincrime-dev"
+	@echo "  make databases             show what is loaded where"
 
 # --- stack ------------------------------------------------------------------
 
@@ -89,16 +101,32 @@ export:
 # cannot be opened by the server, which runs as neo4j, so the database comes
 # back `offline` with a bare filename as its status message and no error in the
 # log. The chown recovers a database already broken that way.
-load: import-mount-ok
+load: import-mount-ok load-guard
 	$(CYPHER) -d system "STOP DATABASE $(DB) WAIT"
 	$(COMPOSE) exec -T --user root neo4j chown -R neo4j:neo4j /data/databases /data/transactions
 	$(COMPOSE) exec -T --user neo4j neo4j sh /import/import.sh
 	$(CYPHER) -d system "START DATABASE $(DB) WAIT"
 	@echo "applying constraints..."
 	$(CYPHER) -d $(DB) -f /cypher/constraints.cypher
+	@$(MAKE) --no-print-directory stamp
 	@$(MAKE) --no-print-directory clean-import
 	@echo
 	@$(MAKE) --no-print-directory stats
+
+# Record what is loaded, so the next load can see what it would replace. One
+# node; deliberately readable by everyone, since "which dataset am I looking
+# at" is a fair question for a demo user too.
+stamp:
+	@txns=$$($(PY) -c "import json;print(json.load(open('out/$(SCALE)/manifest.json'))['row_counts']['transaction'])"); 	seed=$$($(PY) -c "import json;print(json.load(open('out/$(SCALE)/manifest.json'))['reproducibility']['seed'])"); 	$(CYPHER) -d $(DB) "MERGE (m:DatasetManifest {id:'current'}) 	  SET m.preset='$(SCALE)', m.seed=$$seed, m.transactions=$$txns, m.loaded_at=datetime()" >/dev/null
+	@echo "stamped $(DB) as preset=$(SCALE)"
+
+# Refuse to replace a larger dataset with a smaller one without FORCE=1.
+# The separate-database split above makes this collision unlikely rather than
+# impossible: reloading the same preset over a bigger build of itself would
+# still lose it silently.
+load-guard:
+	@test -f out/$(SCALE)/manifest.json || { 		echo "no dataset at out/$(SCALE). Run: make generate SCALE=$(SCALE)"; exit 1; }
+	@incoming=$$($(PY) -c "import json;print(json.load(open('out/$(SCALE)/manifest.json'))['row_counts']['transaction'])"); 	existing=$$($(CYPHER) -d $(DB) --format plain 	  "MATCH (m:DatasetManifest) RETURN coalesce(m.transactions,0) AS n" 2>/dev/null 	  | tail -1 | tr -dc '0-9'); 	existing=$${existing:-0}; 	if [ "$${FORCE:-0}" != "1" ] && [ "$$existing" -gt "$$incoming" ]; then 		echo ""; 		echo "REFUSING: $(DB) holds $$existing transactions; this load carries $$incoming."; 		echo "A load replaces the whole store, so the larger dataset would be lost."; 		echo "Re-run with FORCE=1 if that is what you want."; 		echo ""; 		exit 1; 	fi
 
 # Staged CSV is disposable once the store is built - 14GB of it at the mvp
 # preset, against a 19GB store and 1.8GB of Parquet. The directory itself must
@@ -145,6 +173,15 @@ test:
 # customer: if it fails, the demo user can read the answer key.
 rbac-check:
 	NEO4J_URI=bolt://localhost:$(NEO4J_BOLT_PORT) uv run pytest tests/test_rbac.py -v --run-neo4j
+
+databases:
+	@$(CYPHER) -d system --format plain \
+		"SHOW DATABASES YIELD name, currentStatus WHERE name STARTS WITH 'fincrime'"
+	@for db in fincrime fincrime-dev; do \
+		$(CYPHER) -d $$db --format plain \
+		  "MATCH (m:DatasetManifest) RETURN '$$db' AS db, m.preset AS preset, \
+		   m.transactions AS txns, m.loaded_at AS loaded" 2>/dev/null | tail -n +2; \
+	done
 
 stats:
 	@$(CYPHER) -d $(DB) --format plain \

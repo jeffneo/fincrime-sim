@@ -29,10 +29,15 @@ GRANT SHOW ROLE ON DBMS TO reader;
 GRANT SHOW USER ON DBMS TO reader;
 
 // ---------------------------------------------------------------------------
-// 2. The dataset database
+// 2. The dataset databases
 // ---------------------------------------------------------------------------
 
+// One database per scale preset. A bulk load replaces the whole store, so
+// sharing a name between presets means a dev smoke test destroys the mvp
+// graph. Both carry identical roles and identical deny rules, because a demo
+// runs against whichever one is loaded.
 CREATE DATABASE fincrime IF NOT EXISTS;
+CREATE DATABASE `fincrime-dev` IF NOT EXISTS;
 
 // ---------------------------------------------------------------------------
 // 3. Roles. The release ships FULLY LABELED (PHASE1-PLAN.md §9.4) - ground
@@ -42,27 +47,27 @@ CREATE DATABASE fincrime IF NOT EXISTS;
 
 // fincrime_admin: sees everything, runs scoring and GDS write-back.
 CREATE ROLE fincrime_admin IF NOT EXISTS;
-GRANT ALL ON DATABASE fincrime TO fincrime_admin;
-GRANT MATCH {*} ON GRAPH fincrime NODES * TO fincrime_admin;
-GRANT MATCH {*} ON GRAPH fincrime RELATIONSHIPS * TO fincrime_admin;
-GRANT WRITE ON GRAPH fincrime TO fincrime_admin;
+GRANT ALL ON DATABASES fincrime, `fincrime-dev` TO fincrime_admin;
+GRANT MATCH {*} ON GRAPHS fincrime, `fincrime-dev` NODES * TO fincrime_admin;
+GRANT MATCH {*} ON GRAPHS fincrime, `fincrime-dev` RELATIONSHIPS * TO fincrime_admin;
+GRANT WRITE ON GRAPHS fincrime, `fincrime-dev` TO fincrime_admin;
 // GDS needs to project and, for mutate/write modes, write back.
 GRANT EXECUTE BOOSTED PROCEDURES gds.*, apoc.* ON DBMS TO fincrime_admin;
 
 // fincrime_demo: the role a customer demo actually runs as. Reads the whole
 // business graph, denied the answer key.
 CREATE ROLE fincrime_demo IF NOT EXISTS;
-GRANT ACCESS ON DATABASE fincrime TO fincrime_demo;
-GRANT SHOW CONSTRAINTS ON DATABASE fincrime TO fincrime_demo;
-GRANT SHOW INDEXES ON DATABASE fincrime TO fincrime_demo;
-GRANT MATCH {*} ON GRAPH fincrime NODES * TO fincrime_demo;
-GRANT MATCH {*} ON GRAPH fincrime RELATIONSHIPS * TO fincrime_demo;
+GRANT ACCESS ON DATABASES fincrime, `fincrime-dev` TO fincrime_demo;
+GRANT SHOW CONSTRAINTS ON DATABASES fincrime, `fincrime-dev` TO fincrime_demo;
+GRANT SHOW INDEXES ON DATABASES fincrime, `fincrime-dev` TO fincrime_demo;
+GRANT MATCH {*} ON GRAPHS fincrime, `fincrime-dev` NODES * TO fincrime_demo;
+GRANT MATCH {*} ON GRAPHS fincrime, `fincrime-dev` RELATIONSHIPS * TO fincrime_demo;
 // Investigators need GDS for community detection and centrality - those are
 // the demo, not a leak. Projections are read-only for this role.
 GRANT EXECUTE BOOSTED PROCEDURES gds.*, apoc.* ON DBMS TO fincrime_demo;
 // GDS projections and algorithm state are held per-user in the graph catalog,
 // so this write privilege never touches the dataset itself.
-GRANT NAME MANAGEMENT ON DATABASE fincrime TO fincrime_demo;
+GRANT NAME MANAGEMENT ON DATABASES fincrime, `fincrime-dev` TO fincrime_demo;
 
 // --- The answer key. ---
 // Every ground-truth node carries the marker label :GroundTruth in addition to
@@ -74,8 +79,8 @@ GRANT NAME MANAGEMENT ON DATABASE fincrime TO fincrime_demo;
 // The marker label. This is the catch-all: any future ground-truth node type
 // is hidden the moment it carries :GroundTruth, even if someone forgets to add
 // a rule here.
-DENY TRAVERSE ON GRAPH fincrime NODES GroundTruth TO fincrime_demo;
-DENY READ {*} ON GRAPH fincrime NODES GroundTruth TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` NODES GroundTruth TO fincrime_demo;
+DENY READ {*} ON GRAPHS fincrime, `fincrime-dev` NODES GroundTruth TO fincrime_demo;
 
 // The concrete labels as well. The marker deny alone already makes the DATA
 // unreachable, but `db.labels()` filters per label token - so with only the
@@ -84,12 +89,12 @@ DENY READ {*} ON GRAPH fincrime NODES GroundTruth TO fincrime_demo;
 // each label by name removes them from schema introspection too.
 // Keep in step with the ground-truth tables in schema.py; tests/test_schema.py
 // fails the build if a table is added here without a rule.
-DENY TRAVERSE ON GRAPH fincrime NODES Ring TO fincrime_demo;
-DENY TRAVERSE ON GRAPH fincrime NODES TypologyLabel TO fincrime_demo;
-DENY TRAVERSE ON GRAPH fincrime NODES CaseNarrative TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` NODES Ring TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` NODES TypologyLabel TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` NODES CaseNarrative TO fincrime_demo;
 
-DENY TRAVERSE ON GRAPH fincrime RELATIONSHIPS LABELS_SUBJECT TO fincrime_demo;
-DENY TRAVERSE ON GRAPH fincrime RELATIONSHIPS MEMBER_OF_RING TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` RELATIONSHIPS LABELS_SUBJECT TO fincrime_demo;
+DENY TRAVERSE ON GRAPHS fincrime, `fincrime-dev` RELATIONSHIPS MEMBER_OF_RING TO fincrime_demo;
 
 // Residual disclosure, accepted: `SHOW CONSTRAINTS` still names these labels,
 // because a constraint definition carries its own label. The data is what is
