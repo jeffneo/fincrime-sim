@@ -201,19 +201,47 @@ Three items remain for the M5 loop, and the first is the interesting one:
    treasury-hub generator produces only a handful of instances because it needs
    employers with four or more staff banking here, which is rare at any preset.
 
-## 7b. Query performance at mvp scale — open
+Two more items came out of running the Cypher checks at `mvp` scale (§7b),
+both about signal density over time rather than over the population:
 
-The detection queries are **not interactive** at 57.3M transactions: the
-structuring recovery query does not return inside ten minutes, and the cash-side
-aggregation alone takes three. The composite indexes added on 2026-09-16 work
-(82,237-row seek in 1.6s); the cost is fan-out from accounts and a ~5x RBAC
-penalty on the demo role. Full measurements, causes and untried options are in
+4. **The mule shared-device signal is thin in any short window.** A mule ring
+   runs continuously rather than in a burst — `RING-mule_network-00000` spreads
+   134 receipts over 12 months — and the ring device appears on only a fraction
+   of them. Over calendar 2025 the check recovers the ring with 18 distinct
+   feeders behind one collector; over a quarter it finds nothing at all. Either
+   the generator should concentrate a ring's activity, or the device-sharing
+   rate on ring transactions should rise, or the demo accepts that this one
+   query is year-scoped.
+5. **CNP device reuse is not selective at a one-month scope.** The fixed T4
+   check returns 50 devices with 3+ cards from 3+ owners in June, and none of
+   their cards carry a `cnp_fraud` label — the hits are legitimate shared
+   devices. Consistent with the 0.008 AUC-PR already recorded above; recorded
+   here because it is now visible from Cypher too.
+
+## 7b. Query performance at mvp scale — resolved
+
+The demo query set in `neo4j/demo/` returns in **1–9 seconds** against 57.3M
+transactions, as the demo role, on the laptop container. Full measurements in
 [PERFORMANCE-NOTES.md](PERFORMANCE-NOTES.md).
 
-This does not affect the dataset's correctness or the M1-M4 calibration, all of
-which is computed from Parquet. It does mean the interactive demo currently
-runs on the `dev` preset, and that M6 needs a performance pass before the
-release is demoable at full scale.
+The earlier diagnosis — that the constraint was page cache against a 28GB store
+— was wrong, and was disproved by pushing the graph to a 32GB Aura instance,
+where four of six queries still did not return in five minutes. The real causes
+were both in the queries: composite indexes that ended in `amount_usd` could
+not serve the time window, so a month-scoped query read `booked_at` off 3.3M
+scattered nodes; and the structuring query nested two index seeks instead of
+hash-joining them on the account they share. Two indexes ending in `booked_at`
+and one `USING JOIN` hint closed it.
+
+Left over from that work, in priority order for M6:
+
+1. **GDS at mvp scale is untested** — projection cost and algorithm runtime.
+   Community detection over the device-sharing subgraph is the better mule demo
+   than the Cypher form.
+2. **A year-scoped T1 exhausts the 4G transaction memory pool.** Batch shape,
+   not demo shape, but it needs either a larger pool or a two-pass form.
+3. **The Docker VM disk has 4.8GB free** of 59GB. Each additional Transaction
+   index costs ~3.8GB; the next one will not fit without pruning.
 
 ## 8. Risks
 

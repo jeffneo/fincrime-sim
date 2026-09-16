@@ -25,7 +25,8 @@ CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
 
 .PHONY: help up down nes nes-down generate validate export load import-mount-ok \
         load-guard stamp clean-import all \
-        check test lint rbac-check shell logs stats clean databases
+        check test lint rbac-check shell logs stats clean databases \
+        aura-guard aura-dump aura-push aura-setup aura-bench bench
 
 help:
 	@echo "Pipeline, in order:"
@@ -39,6 +40,12 @@ help:
 	@echo ""
 	@echo "  make check                 lint + tests"
 	@echo "  make rbac-check            prove fincrime_demo cannot read ground truth"
+	@echo ""
+	@echo "Demo target (the mvp graph is not interactive on a laptop):"
+	@echo "  make aura-push SCALE=mvp   dump and upload to the Aura instance in .env"
+	@echo "  make aura-setup            roles, deny rules and demo users on Aura"
+	@echo "  make aura-bench            time the demo query set as admin and analyst"
+	@echo "  make bench TARGET=local    same timings against the local container"
 	@echo ""
 	@echo "  make stats / logs / shell / down"
 	@echo "  make clean                 DESTRUCTIVE: drops the graph and out/"
@@ -173,6 +180,59 @@ test:
 # customer: if it fails, the demo user can read the answer key.
 rbac-check:
 	NEO4J_URI=bolt://localhost:$(NEO4J_BOLT_PORT) uv run pytest tests/test_rbac.py -v --run-neo4j
+
+# --- Aura ------------------------------------------------------------------
+#
+# The mvp graph needs more page cache than a laptop has (PERFORMANCE-NOTES.md),
+# so the demo target is a managed instance. `neo4j-admin database upload` wants
+# a dump file, and a dump wants the database stopped, so the sequence is
+# stop -> dump -> start -> upload. The dump lands in out/import/dumps because
+# that is the one host-backed mount the container has; the Docker VM disk does
+# not have room for a 28GB store plus its dump.
+#
+# Aura accepts a dump from this newer server: the mvp store is 2026.07 block
+# format and the target instance reports 5.27-aura, and the import service
+# upgraded it on the way in.
+
+AURA_DUMP_DIR := out/import/dumps
+
+aura-guard:
+	@test -n "$${AURA_URI:-}" || { \
+		echo "AURA_URI is not set. Add AURA_URI / AURA_USERNAME / AURA_PASSWORD"; \
+		echo "to .env - see .env.example."; exit 1; }
+
+aura-dump: aura-guard
+	@mkdir -p $(AURA_DUMP_DIR)
+	$(CYPHER) -d system "STOP DATABASE $(DB) WAIT"
+	$(COMPOSE) exec -T --user neo4j neo4j neo4j-admin database dump $(DB) \
+		--to-path=/import/dumps --overwrite-destination=true
+	$(CYPHER) -d system "START DATABASE $(DB) WAIT"
+	@ls -lh $(AURA_DUMP_DIR)/$(DB).dump
+
+# Replaces everything in the target instance. Takes ~20 minutes for the mvp
+# preset: two minutes of upload, the rest Aura rebuilding the store.
+aura-push: aura-dump
+	$(COMPOSE) exec -T --user neo4j neo4j sh -c \
+		"neo4j-admin database upload $(DB) --from-path=/import/dumps \
+		 --to-uri='$$AURA_URI' --to-user='$$AURA_USERNAME' \
+		 --to-password='$$AURA_PASSWORD' --overwrite-destination=true"
+	@$(MAKE) --no-print-directory aura-setup
+
+# Roles, deny rules and demo users on the Aura instance. Separate from the
+# graph because an upload replaces the data, not the security model.
+aura-setup: aura-guard
+	$(COMPOSE) exec -T --user neo4j neo4j sh -c \
+		"cypher-shell -a '$$AURA_URI' -u '$$AURA_USERNAME' -p '$$AURA_PASSWORD' \
+		 -d system -f /cypher/aura-setup.cypher"
+	@echo "roles applied; demo user is analyst / analystanalyst"
+
+# Time the demo query set. TARGET=local|aura, USER=neo4j|analyst.
+bench:
+	@bash scripts/bench-demo.sh $${TARGET:-local} $${USER_ROLE:-neo4j}
+
+aura-bench:
+	@bash scripts/bench-demo.sh aura neo4j
+	@bash scripts/bench-demo.sh aura analyst
 
 databases:
 	@$(CYPHER) -d system --format plain \

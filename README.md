@@ -83,9 +83,19 @@ make help
 | `make all SCALE=dev` | Generate, validate, export, load |
 | `make check` | Lint + tests |
 | `make rbac-check` | Prove the demo role cannot read ground truth (needs a live DB) |
+| `make bench TARGET=local` | Time the demo query set; `USER_ROLE=analyst` for the demo role |
+| `make aura-push SCALE=mvp` | Dump the graph and upload it to the Aura instance in `.env` |
+| `make aura-setup` | Roles, deny rules and demo users on that Aura instance |
+| `make aura-bench` | Time the demo set on Aura, as admin and as analyst |
 | `make clean` | **Destructive**: drops the graph and `out/` |
 
 Presets: `SCALE=dev` (10K entities, 3 months) and `SCALE=mvp` (100K, 12 months).
+
+The `mvp` graph runs the demo set in seconds on the local container — see
+[PERFORMANCE-NOTES.md](PERFORMANCE-NOTES.md) for the measurements and for why
+the queries are written the way they are. `make aura-push` exists because a
+managed instance is a convenient demo target, not because the laptop is too
+slow; it replaces everything in the target instance.
 
 ## Layout
 
@@ -99,6 +109,9 @@ src/fincrime/
   config.py        config loading + the reproducibility manifest
   export/          parquet (canonical), neo4j_import (derived), datadict
 neo4j/             compose provisioning, RBAC, generated constraints
+  demo/            the demo query set - analyst-runnable, time-scoped, timed
+  typology_checks  topology recovery + admin scoring against the answer key
+scripts/           bench-demo.sh, which times neo4j/demo against either target
 tests/             schema guards, RNG independence, determinism, live RBAC
 out/               generated datasets and import staging (gitignored)
 releases/          versioned release payloads

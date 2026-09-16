@@ -140,8 +140,11 @@ LIMIT 50;
 // The cards must belong to DIFFERENT customers. A household's shared tablet
 // touching three cards from the same two people is not fraud, and without the
 // distinct-owner condition this query returns mostly those.
+// No `<-[:FROM]-()` on the card: a Card records its funding account as a
+// property (card.account_id), not a relationship, so that decoration matched
+// nothing and this check returned zero rows regardless of the data. The
+// funding account arrives below through the transaction's own :FROM edge.
 MATCH (d:Device)<-[:VIA_DEVICE]-(t:Transaction)-[:ON_CARD]->(card:Card)
-      <-[:FROM]-()  // card is funded by an account
 WHERE t.channel = 'card_cnp'
 WITH d, t, card
 MATCH (owner)-[:OWNS]->(:Account)<-[:FROM]-(t)

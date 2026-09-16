@@ -57,3 +57,5 @@ CREATE INDEX transaction_channel IF NOT EXISTS FOR (n:Transaction) ON (n.channel
 // Composite indexes for the demo query patterns.
 CREATE INDEX transaction_txn_class_amount_usd IF NOT EXISTS FOR (n:Transaction) ON (n.txn_class, n.amount_usd);
 CREATE INDEX transaction_channel_direction_amount_usd IF NOT EXISTS FOR (n:Transaction) ON (n.channel, n.direction, n.amount_usd);
+CREATE INDEX transaction_txn_class_booked_at IF NOT EXISTS FOR (n:Transaction) ON (n.txn_class, n.booked_at);
+CREATE INDEX transaction_channel_direction_booked_at IF NOT EXISTS FOR (n:Transaction) ON (n.channel, n.direction, n.booked_at);

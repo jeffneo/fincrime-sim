@@ -802,11 +802,20 @@ EDGES_BY_NAME: dict[str, EdgeTable] = {t.name: t for t in EDGE_TABLES}
 #: query does not return inside ten minutes.
 #:
 #: Neo4j uses a composite index when every leading property is an equality
-#: predicate and the last may be a range, which is exactly the shape of both
-#: entries here.
+#: predicate and the last may be a range, which is exactly the shape of every
+#: entry here.
+#:
+#: The ``booked_at`` pair matters as much as the ``amount_usd`` pair, because
+#: every demo query is scoped to a time window and only ONE range predicate can
+#: be served by an index. With just the amount variants, a query scoped to a
+#: month still seeks the whole year and then reads ``booked_at`` off every node
+#: it found - 3.3M scattered property reads on the CTR aggregation, which
+#: measured 222s against 20s once the window was inside the index.
 COMPOSITE_INDEXES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("Transaction", ("txn_class", "amount_usd")),
     ("Transaction", ("channel", "direction", "amount_usd")),
+    ("Transaction", ("txn_class", "booked_at")),
+    ("Transaction", ("channel", "direction", "booked_at")),
 )
 
 #: The marker label that the RBAC deny rule in neo4j/nes-setup.cypher targets.
