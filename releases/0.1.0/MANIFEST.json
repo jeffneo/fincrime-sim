@@ -1,14 +1,14 @@
 {
   "release": "0.1.0",
   "fincrime_version": "0.1.0",
-  "assembled_at": "2026-09-16T20:26:40.509507+00:00",
+  "assembled_at": "2026-09-16T20:35:15.588004+00:00",
   "preset": "mvp",
   "reproducibility": {
     "seed": 20260915,
     "config_digest": "1799380c736d372f5cdf1076f284df6f",
     "schema_digest": "ecdd151af61c67aefb3d0eadd21b83af"
   },
-  "git_sha": "ac839b0cacc499bba6bb4c5cfdb619c8383526ad",
+  "git_sha": "a593775909c8dcf285683e486199388a8228299f",
   "schema_digest_now": "ecdd151af61c67aefb3d0eadd21b83af",
   "window": {
     "start": "2025-01-01",
@@ -70,8 +70,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 4822,
-      "sha256": "f5b6df786905748e0d38f554b1d3f740ea7c08b13cf94f75b16f52ef0b8cb78a"
+      "bytes": 4970,
+      "sha256": "f9d8089239f4fc14db6965979b20d077cf007121977a0bd9311af0557ead5f49"
     },
     {
       "path": "TYPOLOGIES.md",
@@ -85,8 +85,8 @@
     },
     {
       "path": "neo4j/fincrime.dump",
-      "bytes": 5284755583,
-      "sha256": "e6ebec454b21449b02df5bac291e68327f806c6dd65509c745c02d8530caf7ed"
+      "bytes": 5284601375,
+      "sha256": "cb3a1ac5ab9786d38a79789d14bdb02b02d862ec0880ebb1e62f9a3c6dc291af"
     },
     {
       "path": "neo4j/roles-selfhosted.cypher",

@@ -67,11 +67,14 @@ of the hardware.
 
 ```bash
 cypher-shell -u analyst -p analystanalyst -d fincrime \
-  -P "window_start => '2025-06-01T00:00:00Z'" \
-  -P "window_end   => '2025-07-01T00:00:00Z'" \
+  -P "window_start => '2025-10-01T00:00:00Z'" \
+  -P "window_end   => '2025-11-01T00:00:00Z'" \
   -P "account_id   => 'ACC-000043670'" \
   -f queries/01_structuring_recovery.cypher
 ```
+
+October is a good default window at this seed: all six queries return rows in
+it. Three mule rings overlap it, which matters for the caveat below.
 
 **Warm the set once after loading.** The first pass runs against an empty page
 cache and is several times slower; nothing is wrong.
@@ -111,7 +114,7 @@ what an investigator should find that closes the case.
 seed           20260915
 config_digest  1799380c736d372f5cdf1076f284df6f
 schema_digest  ecdd151af61c67aefb3d0eadd21b83af
-git_sha        ac839b0cacc499bba6bb4c5cfdb619c8383526ad
+git_sha        a593775909c8dcf285683e486199388a8228299f
 ```
 
 Same triple, byte-identical Parquet. The dataset is not sampled from any real
