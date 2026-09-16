@@ -16,11 +16,12 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__
+from . import __version__, behavior, population
 from .config import build_manifest, load_config, schema_digest
 from .export import datadict, neo4j_import, parquet
 from .rng import streams
 from .schema import ALL_NODE_TABLES, EDGE_TABLES, GROUND_TRUTH_LABEL
+from .validate import privacy, stats
 
 app = typer.Typer(
     name="fincrime",
@@ -63,15 +64,32 @@ def generate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
         f"({cfg.window.start} → {cfg.window.end})"
     )
 
-    counts = parquet.write_all_empty(cfg)
+    with console.status("generating population..."):
+        pop = population.build(cfg, rng)
+    console.print(f"population · {len(pop.account_ids):,} accounts, {len(pop.card_ids):,} cards")
 
-    # M1+ replaces the line above with the generator stages. Each takes its own
-    # named stream, so adding a stage never perturbs an earlier one (rng.py).
-    #   population.build(cfg, rng.get("population"))
-    #   behavior.simulate(cfg, rng.get("behavior"), pop)
-    #   typologies.inject(cfg, rng.get("typologies"), pop)
-    #   hard_negatives.inject(cfg, rng.get("hard_negatives"), pop)
-    _ = rng.get("population")  # touch the root stream so its derivation is exercised
+    # Transactions stream to disk a month at a time; everything else is small
+    # enough to write whole. Accumulating the transaction stream first peaked
+    # over physical RAM at the mvp preset.
+    with parquet.StreamingWriter(cfg) as writer:
+        with console.status("simulating background behavior..."):
+            n_txn = behavior.simulate(
+                cfg,
+                rng,
+                pop,
+                lambda txn, edges: parquet.append_transactions(writer, txn, edges),
+            )
+        console.print(f"background · {n_txn:,} transactions")
+
+        # M2-M4 add their stages here, feeding the same sink. Each draws from
+        # its own named stream, so adding one never perturbs an earlier stage.
+        #   typologies.inject(cfg, rng, pop, sink)
+        #   hard_negatives.inject(cfg, rng, pop, sink)
+
+        streamed = writer.close()
+
+    counts = parquet.write_dataset(cfg, dict(pop.tables), skip=set(streamed))
+    counts.update(streamed)
 
     manifest_path = cfg.output.dir / "manifest.json"
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,6 +128,53 @@ def export_csv(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(neo4j_import.constraints_cypher())
         console.print(f"constraints → [cyan]{path}[/cyan]")
+
+
+@app.command()
+def validate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
+    """Check a generated dataset for statistical fidelity and privacy.
+
+    Exits non-zero if any check falls outside its band, so this is usable as a
+    gate rather than only as a report.
+    """
+    cfg = _resolve(scale, seed)
+    if not (cfg.output.dir / "manifest.json").exists():
+        raise typer.BadParameter(
+            f"no dataset at {cfg.output.dir}. Run `fincrime generate --scale {scale}` first.",
+            param_hint="--scale",
+        )
+
+    checks = stats.run(cfg.output.dir)
+    privacy_checks, violations = privacy.audit(cfg.output.dir)
+    checks += privacy_checks
+
+    table = Table(title=f"Validation — {cfg.name}", header_style="bold", show_lines=False)
+    for column in ("", "check", "value", "expected", "note"):
+        table.add_column(column, overflow="fold")
+    for c in checks:
+        table.add_row(
+            "[green]pass[/green]" if c.ok else "[red]FAIL[/red]",
+            c.name,
+            f"{c.value:,.4g}",
+            c.band,
+            c.detail,
+        )
+    console.print(table)
+
+    failed = [c for c in checks if not c.ok]
+    for c in failed:
+        console.print(f"\n[red]FAIL[/red] [bold]{c.name}[/bold] = {c.value:,.4g}, want {c.band}")
+        console.print(f"  {' '.join(c.why.split())}")
+    for v in violations[:10]:
+        console.print(
+            f"  [red]{v.table}.{v.column}[/red] violates {v.control}: "
+            f"{v.count:,} bad values, e.g. {v.sample!r}"
+        )
+
+    passed, total = stats.summarize(checks)
+    console.print(f"\n{passed}/{total} checks passed")
+    if failed:
+        raise typer.Exit(1)
 
 
 @app.command()

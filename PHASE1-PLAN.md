@@ -27,12 +27,17 @@ These are the choices that shape everything downstream. Three are deliberate dev
 
 ### Scale presets
 
-| Preset | Entities | Window | Est. transactions | Use |
+| Preset | Entities | Window | Transactions | Use |
 |---|---|---|---|---|
-| `dev` | 10K | 3 months | ~1M | Iteration; every milestone's smoke test |
-| `mvp` | 100K | 12 months | ~30M | Phase 1 release target |
+| `dev` | 10K | 3 months | 1.37M | Iteration; every milestone's smoke test |
+| `mvp` | 100K | 12 months | 55.4M | Phase 1 release target |
 
-~30M assumes ~25 txn/entity-month blended across retail and business archetypes; configurable.
+Measured at M1, not estimated. The planning figure was ~30M on an assumed 25
+txn/entity-month; the archetypes actually produce ~43, which is the right
+number for an active current account carrying payroll, rent, utilities, card
+spend, cash and P2P. The consequence is a 1.8GB Parquet release rather than
+~1GB — worth knowing before M6, and dialable through the archetype rates in
+`reference.py` if the release should be smaller.
 
 ---
 
@@ -118,7 +123,7 @@ Each exits on a runnable check, and every milestone runs at `dev` scale.
 | | Milestone | Exit criteria |
 |---|---|---|
 | **M0** ✅ | Foundation: uv project, CLI skeleton, `rng.py`, `schema.py`, Neo4j Enterprise + GDS + Studio compose, constraints, RBAC roles, test suite | **Met.** `generate --scale dev` emits 33 schema-valid Parquet tables; `make all` bulk-loads and applies 15 constraints / 29 indexes; GDS 2026.07.0 and Studio reachable; 110 unit tests and 9 live RBAC tests green |
-| **M1** | Population + background behavior | 10K entities / 3 months / ~1M txns, zero typologies; stats report shows plausible amount, inter-arrival, seasonality, and degree distributions |
+| **M1** ✅ | Population + background behavior | **Met.** 10K entities / 3 months / 1.37M txns, zero typologies. `fincrime validate` runs 15 statistical and privacy checks, each with a stated band and reason, and passes at both `dev` and `mvp` scale. Generation streams per month: `mvp` builds 55.4M transactions in 2.9 min at 9.0GB peak |
 | **M2** | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | Labels emitted; graph loads; `typology_checks.cypher` recovers the injected stars; GBM + rules baselines run and produce a calibration number |
 | **M3** | T2, T3, T4 + difficulty tiers | All 4 typologies inject at configured prevalence; per-tier detectability measurably ordered easy > medium > hard |
 | **M4** | Hard negatives + blending | Hard negatives appear in baseline alert sets; illicit actors carry full-window normal activity |

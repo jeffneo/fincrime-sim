@@ -23,11 +23,19 @@ _ID_CONTROL_NOTES: dict[str, str] = {
     "invalid_checkdigit_iban": "IBAN with a deliberately invalid ISO 7064 check digit.",
     "reserved_test_bin": "Luhn-valid PAN on a reserved test BIN, not routable on any network.",
     "reserved_555_range": "NANP 555-0100 to 555-0199, reserved for fictitious use.",
-    "rfc5737_documentation_range": (
-        "IPv4 from 192.0.2.0/24, 198.51.100.0/24, or 203.0.113.0/24 - RFC 5737 "
-        "documentation ranges, never routed."
+    "reserved_ipv4_space": (
+        "IPv4 from 240.0.0.0/4 (RFC 1112, reserved and never allocated) or "
+        "100.64.0.0/10 (RFC 6598 carrier-grade NAT, never publicly routed). "
+        "RFC 5737 documentation ranges are deliberately NOT used: they offer "
+        "only 762 addresses, which at 100K entities would force dozens of "
+        "unrelated customers onto each IP and manufacture the exact "
+        "shared-infrastructure signal the mule typology is detected by."
     ),
-    "unassigned_zip": "5-digit ZIP from an unassigned USPS range.",
+    "reserved_house_number": (
+        "House number >= 900000, far above anything US street addressing "
+        "issues, so the line cannot coincide with a real deliverable address "
+        "while city/state/ZIP stay geographically realistic."
+    ),
     "synthetic_composition": (
         "Composed from generated parts. Not sampled from any real record; any "
         "collision with a real name is coincidental and every other attribute "

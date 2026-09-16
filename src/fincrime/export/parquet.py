@@ -19,7 +19,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from ..config import RunConfig
-from ..schema import ALL_NODE_TABLES, EDGE_TABLES, EdgeTable, NodeTable
+from ..schema import (
+    ALL_NODE_TABLES,
+    EDGE_TABLES,
+    EDGES_BY_NAME,
+    NODES_BY_NAME,
+    EdgeTable,
+    NodeTable,
+)
 
 #: Subdirectories of the output dir. Ground truth is written to its own
 #: directory as well as its own tables, so a release can be shipped without it
@@ -74,21 +81,119 @@ def write_all_empty(cfg: RunConfig) -> dict[str, int]:
     return counts
 
 
-def write_table(cfg: RunConfig, table: NodeTable | EdgeTable, data: pa.Table) -> int:
-    """Write one table, validating it against the declared schema first.
+def _conform(table: NodeTable | EdgeTable, data: object) -> pa.Table:
+    """Coerce a caller's table to the declared schema.
 
-    Casting rather than trusting the caller means a generator that produces an
-    int where the schema says double fails here, with the table and column
-    named, instead of producing a dataset that loads into Neo4j with the wrong
-    property type.
+    Accepts an Arrow table or anything with ``.to_arrow()`` (Polars). Columns
+    are selected by name in schema order and then cast, so a generator that
+    builds its columns in a different order, or produces an int where the
+    schema says double, is corrected here rather than silently loading into
+    Neo4j with the wrong property type. A missing or unexpected column is an
+    error naming the table and the column, because that is a generator bug.
     """
     expected = table.arrow_schema()
-    if data.schema != expected:
-        try:
-            data = data.cast(expected)
-        except (pa.ArrowInvalid, pa.ArrowNotImplementedError) as exc:
-            raise ValueError(
-                f"table {table.name!r} does not match its declared schema and "
-                f"cannot be cast to it: {exc}"
-            ) from exc
-    return _write(table_path(cfg, table), data, cfg)
+    arrow = data if isinstance(data, pa.Table) else data.to_arrow()  # type: ignore[union-attr]
+
+    have = set(arrow.column_names)
+    want = [f.name for f in expected]
+    missing = [c for c in want if c not in have]
+    extra = [c for c in arrow.column_names if c not in want]
+    if missing or extra:
+        raise ValueError(
+            f"table {table.name!r} does not match its declared schema: "
+            f"missing={missing or 'none'}, unexpected={extra or 'none'}"
+        )
+
+    arrow = arrow.select(want)
+    try:
+        return arrow.cast(expected)
+    except (pa.ArrowInvalid, pa.ArrowNotImplementedError, pa.ArrowTypeError) as exc:
+        raise ValueError(
+            f"table {table.name!r} cannot be cast to its declared schema: {exc}"
+        ) from exc
+
+
+def write_table(cfg: RunConfig, table: NodeTable | EdgeTable, data: object) -> int:
+    """Write one table in full, conforming it to the declared schema first."""
+    return _write(table_path(cfg, table), _conform(table, data), cfg)
+
+
+class StreamingWriter:
+    """Append-as-you-go Parquet writer, one file per table.
+
+    The transaction stream is generated a month at a time. Holding every month
+    and concatenating at the end peaked at 15.6GB on the mvp preset — over
+    physical RAM on a 16GB machine, so it swapped. Writing each month as it is
+    produced keeps the working set to one month regardless of window length,
+    which is also what makes the Phase 3 scale-out possible at all.
+
+    Used as a context manager; ``counts`` is valid after close.
+    """
+
+    def __init__(self, cfg: RunConfig) -> None:
+        self._cfg = cfg
+        self._writers: dict[str, pq.ParquetWriter] = {}
+        self.counts: dict[str, int] = {}
+
+    def append(self, table: NodeTable | EdgeTable, data: object) -> None:
+        arrow = _conform(table, data)
+        writer = self._writers.get(table.name)
+        if writer is None:
+            path = table_path(self._cfg, table)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            writer = pq.ParquetWriter(
+                path,
+                table.arrow_schema(),
+                compression=self._cfg.output.compression,
+                write_statistics=False,
+                write_page_index=False,
+            )
+            self._writers[table.name] = writer
+            self.counts.setdefault(table.name, 0)
+        writer.write_table(arrow, row_group_size=self._cfg.output.row_group_size)
+        self.counts[table.name] += arrow.num_rows
+
+    def close(self) -> dict[str, int]:
+        for writer in self._writers.values():
+            writer.close()
+        self._writers.clear()
+        return self.counts
+
+    def __enter__(self) -> StreamingWriter:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def append_transactions(writer: StreamingWriter, txn: object, edges: dict[str, object]) -> None:
+    """Sink one month of transactions and their edges into a streaming writer."""
+    writer.append(NODES_BY_NAME["transaction"], txn)
+    for name, df in edges.items():
+        writer.append(EDGES_BY_NAME[name], df)
+
+
+def write_dataset(
+    cfg: RunConfig, tables: dict[str, object], *, skip: set[str] | None = None
+) -> dict[str, int]:
+    """Write every declared table, using ``tables`` where provided.
+
+    Tables a milestone has not implemented yet are written empty but
+    schema-valid, so a partially built dataset is still loadable end to end -
+    which is what lets each milestone be verified against the real graph
+    instead of only against its own output.
+
+    ``skip`` names tables a StreamingWriter has already written; they must not
+    be overwritten with an empty file here.
+    """
+    skip = skip or set()
+    counts: dict[str, int] = {}
+    for table in (*ALL_NODE_TABLES, *EDGE_TABLES):
+        if table.name in skip:
+            continue
+        data = tables.get(table.name)
+        if data is None:
+            counts[table.name] = _write(table_path(cfg, table), empty_table(table), cfg)
+        else:
+            counts[table.name] = write_table(cfg, table, data)
+    return counts

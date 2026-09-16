@@ -13,17 +13,18 @@ NEO4J_PASSWORD ?= fincrimefincrime
 NEO4J_BOLT_PORT ?= 7687
 CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
 
-.PHONY: help up down nes nes-down generate export load import-mount-ok all \
+.PHONY: help up down nes nes-down generate validate export load import-mount-ok all \
         check test lint rbac-check shell logs stats clean
 
 help:
-	@echo "M0 vertical slice, in order:"
+	@echo "Pipeline, in order:"
 	@echo "  make up                    start Neo4j Enterprise (http://localhost:7474)"
 	@echo "  make nes                   start Enterprise Studio + provision roles (:8080)"
 	@echo "  make generate SCALE=dev    generate the dataset as Parquet"
+	@echo "  make validate SCALE=dev    statistical fidelity + privacy audit"
 	@echo "  make export SCALE=dev      stage neo4j-admin import CSV"
 	@echo "  make load SCALE=dev        bulk-import into Neo4j, then apply constraints"
-	@echo "  make all SCALE=dev         generate + export + load"
+	@echo "  make all SCALE=dev         generate + validate + export + load"
 	@echo ""
 	@echo "  make check                 lint + tests"
 	@echo "  make rbac-check            prove fincrime_demo cannot read ground truth"
@@ -72,6 +73,9 @@ down:
 generate:
 	uv run fincrime generate --scale $(SCALE)
 
+validate:
+	uv run fincrime validate --scale $(SCALE)
+
 export:
 	uv run fincrime export-csv --scale $(SCALE)
 
@@ -110,7 +114,7 @@ import-mount-ok:
 		done; echo " ready"; \
 	fi
 
-all: generate export load
+all: generate validate export load
 
 # --- verification -----------------------------------------------------------
 

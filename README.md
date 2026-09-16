@@ -7,10 +7,15 @@ typologies — over a Neo4j property graph.
 - [Spec](financial-crime-simulator-spec.md) — product and technical spec
 - [Phase 1 plan](PHASE1-PLAN.md) — MVP scope, decisions, milestones, acceptance criteria
 
-**Status: M0 complete.** The full pipeline runs end to end — config, seeding,
-schema, Parquet, CSV staging, bulk graph load, constraints, RBAC — with the
-population and typology generators still empty. Later milestones fill in
-`generate` rather than extending the pipeline.
+**Status: M1 complete.** The pipeline generates a full synthetic population and
+its background transaction activity, validates it, and loads it into Neo4j. No
+typologies are injected yet — that is M2–M3, and the whole point of M1 is that
+the *background* has to be hard to separate from crime before any crime exists.
+
+| Preset | Entities | Window | Transactions | Generation |
+|---|---|---|---|---|
+| `dev` | 10K | 3 months | 1.37M | ~5s |
+| `mvp` | 100K | 12 months | 55.4M | ~3min, 9GB peak, 1.8GB Parquet |
 
 ## Quick start
 
@@ -72,9 +77,10 @@ make help
 | `make up` | Neo4j Enterprise + APOC + GDS |
 | `make nes` | Enterprise Studio, plus the `fincrime` database and its roles |
 | `make generate SCALE=dev` | Generate the dataset as Parquet |
+| `make validate SCALE=dev` | Statistical fidelity + privacy audit; non-zero exit on failure |
 | `make export SCALE=dev` | Stage `neo4j-admin import` CSV + regenerate constraints |
 | `make load SCALE=dev` | Bulk-import into Neo4j, apply constraints, print counts |
-| `make all SCALE=dev` | All three |
+| `make all SCALE=dev` | Generate, validate, export, load |
 | `make check` | Lint + tests |
 | `make rbac-check` | Prove the demo role cannot read ground truth (needs a live DB) |
 | `make clean` | **Destructive**: drops the graph and `out/` |

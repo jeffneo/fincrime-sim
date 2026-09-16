@@ -228,16 +228,19 @@ NODE_TABLES: list[NodeTable] = [
             Col(
                 "street",
                 ColType.STRING,
-                "Street line, composed synthetically.",
-                id_control="synthetic_composition",
+                "Street line. The house number is always >= 900000, far above "
+                "any number US street addressing issues, so the line cannot "
+                "coincide with a real deliverable address.",
+                id_control="reserved_house_number",
             ),
             Col("city", ColType.STRING, "City name."),
             Col("state", ColType.STRING, "US state code."),
             Col(
                 "postcode",
                 ColType.STRING,
-                "5-digit ZIP drawn from unassigned ranges.",
-                id_control="unassigned_zip",
+                "Real 5-digit ZIP. Public geographic data, not personal data - "
+                "the address is made unreal by its house number instead, which "
+                "keeps the geographic distribution realistic.",
             ),
             Col("country", ColType.STRING, "ISO 3166-1 alpha-2 country."),
             Col("is_cmra", ColType.BOOLEAN, "Commercial mail-receiving agency (drop box)."),
@@ -444,10 +447,11 @@ NODE_TABLES: list[NodeTable] = [
             Col(
                 "address",
                 ColType.STRING,
-                "IPv4 address drawn from RFC 5737 documentation ranges "
-                "(192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), which are "
-                "reserved and never routed to a real host.",
-                id_control="rfc5737_documentation_range",
+                "IPv4 address from 240.0.0.0/4, reserved by RFC 1112 and never "
+                "allocated or routed to a real host. Shared/NAT addresses come "
+                "from 100.64.0.0/10 (RFC 6598 carrier-grade NAT), also never "
+                "publicly routed.",
+                id_control="reserved_ipv4_space",
                 indexed=True,
             ),
             Col("asn", ColType.LONG, "Autonomous system number."),
