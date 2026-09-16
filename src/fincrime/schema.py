@@ -515,6 +515,18 @@ GROUND_TRUTH_TABLES: list[NodeTable] = [
             Col("ring_id", ColType.STRING, "Ring id.", key=True),
             Col("typology", ColType.STRING, "Typology generator that produced it.", indexed=True),
             Col(
+                "polarity",
+                ColType.STRING,
+                "illicit | hard_negative. A hard negative carries the typology "
+                "it MIMICS, so this column is the only thing on the node that "
+                "separates a ring from its look-alike - at the mvp preset the "
+                "table holds 45 illicit rings and 703 look-alikes, and a "
+                "scoring query that matches on `typology` alone counts all 748 "
+                "as positives. TypologyLabel.polarity says the same thing per "
+                "label; this makes it true of the ring as well.",
+                indexed=True,
+            ),
+            Col(
                 "difficulty_tier",
                 ColType.STRING,
                 "easy | medium | hard. Determined by the generator parameters "

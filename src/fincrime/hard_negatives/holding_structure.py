@@ -167,6 +167,7 @@ class HoldingStructure:
             RingSpec(
                 ring_id=instance_id,
                 typology=self.mimics,
+                polarity="hard_negative",
                 difficulty_tier="medium",
                 knobs={"generator": self.name, "subsidiaries": int(child_accounts.size)},
                 injected_from=window.start,

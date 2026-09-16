@@ -94,10 +94,37 @@ def test_some_entities_share_a_registered_address(pop):
 
 
 def test_devices_are_shared_but_not_universally(pop):
+    """Household sharing, measured on the personal devices only.
+
+    The device table also holds business devices now, so its height is no
+    longer a proxy for individual sharing - it exceeds the population.
+    """
     n_ind = pop.tables["individual"].height
-    n_dev = pop.tables["device"].height
-    assert n_dev < n_ind, "no device sharing at all"
-    assert n_dev > n_ind * 0.5, "device sharing is implausibly widespread"
+    n_personal = len(np.unique(pop.individual_device))
+    assert n_personal < n_ind, "no device sharing at all"
+    assert n_personal > n_ind * 0.5, "device sharing is implausibly widespread"
+
+
+def test_every_business_banks_from_a_few_stable_devices(pop):
+    """The other half of the shared-device signal.
+
+    Entity transactions drew a uniformly random device from the whole pool,
+    which put every company's payments across every device in the dataset and
+    made "unrelated accounts on one device" fire on everybody. A business has
+    to own a small, fixed set.
+    """
+    n_ent = pop.tables["legal_entity"].height
+    assert pop.entity_device.shape[0] == n_ent
+    per_entity = np.array([len(np.unique(row)) for row in pop.entity_device])
+    assert per_entity.min() >= 1
+    assert per_entity.max() <= 3
+
+    # Business and personal devices must not overlap: a company sharing the
+    # finance machine with an unrelated customer's phone is the exact false
+    # signal this is meant to remove.
+    personal = set(np.unique(pop.individual_device).tolist())
+    business = set(np.unique(pop.entity_device).tolist())
+    assert not (personal & business)
 
 
 def test_ip_pool_is_not_artificially_concentrated(pop):

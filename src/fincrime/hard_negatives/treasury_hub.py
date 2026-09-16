@@ -23,7 +23,17 @@ _SECONDS_PER_DAY = 86_400
 
 class TreasuryHub:
     name = "treasury_hub"
-    entities_per_instance = 6
+
+    #: The divisor that turns an entity budget into an instance count, so it
+    #: has to be the number of entities this generator LABELS - not the number
+    #: it touches. Only the hub company is a look-alike; the staff it pays are
+    #: ordinary employees receiving a salary and carry no label. This said 6
+    #: (hub plus five staff), which spent six times the budget per instance and
+    #: produced 75 look-alikes where the configured prevalence asks for 450.
+    #: With 113 mule positives at the mvp preset, 75 could not reach the
+    #: look-alike-to-positive ratio of 2 the gate asks for even if every single
+    #: one landed in the alert queue.
+    entities_per_instance = 1
 
     def __init__(self, ctx: InjectionContext, *, mimics: str) -> None:
         self.ctx = ctx
@@ -41,11 +51,18 @@ class TreasuryHub:
             return result
 
         made = 0
-        for _ in range(count * 3):
+        for attempt in range(count * 3):
             if made >= count:
                 break
             instance_id = f"HN-{self.name}-{made:05d}"
-            r = ctx.rng.fresh("hard_negatives", self.name, instance_id)
+            # The stream keys on the ATTEMPT, not on `made`. Keying it on
+            # `made` meant a failed attempt left `made` unchanged, so the next
+            # iteration rebuilt the same instance_id, drew the same stream, made
+            # the same choice of employer and failed identically - one failure
+            # silently consumed every remaining retry. This generator produced
+            # 5 instances of an intended 75 at the mvp preset, and the pool was
+            # never the problem: 2,685 employers have four or more staff here.
+            r = ctx.rng.fresh("hard_negatives", self.name, instance_id, f"attempt-{attempt}")
             built = self._build(r, instance_id, eligible)
             if built is not None:
                 result.extend(built)
@@ -158,6 +175,7 @@ class TreasuryHub:
             RingSpec(
                 ring_id=instance_id,
                 typology=self.mimics,
+                polarity="hard_negative",
                 difficulty_tier="medium",
                 knobs={"generator": self.name, "staff": int(staff_accounts.size)},
                 injected_from=window.start,

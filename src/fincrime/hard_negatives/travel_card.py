@@ -55,11 +55,14 @@ class FrequentTraveler:
             return result
 
         made = 0
-        for _ in range(count * 3):
+        for attempt in range(count * 3):
             if made >= count:
                 break
             instance_id = f"HN-{self.name}-{made:05d}"
-            r = ctx.rng.fresh("hard_negatives", self.name, instance_id)
+            # Keyed on the attempt, not on `made` - see the note in
+            # treasury_hub.py. A failed attempt otherwise redraws the identical
+            # stream and fails the same way until the retries run out.
+            r = ctx.rng.fresh("hard_negatives", self.name, instance_id, f"attempt-{attempt}")
             built = self._build(r, instance_id, eligible)
             if built is not None:
                 result.extend(built)
@@ -162,6 +165,7 @@ class FrequentTraveler:
             RingSpec(
                 ring_id=instance_id,
                 typology=self.mimics,
+                polarity="hard_negative",
                 difficulty_tier="hard",
                 knobs={"generator": self.name, "destination": destination, "days": trip_days},
                 injected_from=window.start,

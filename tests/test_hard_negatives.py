@@ -49,6 +49,72 @@ def test_every_generator_produces_instances(injected):
     assert not missing, f"generators produced no instances: {sorted(missing)}"
 
 
+def test_every_generator_produces_the_count_it_was_asked_for(injected):
+    """Producing *some* instances is not enough - it has to produce its share.
+
+    The retry loops key their RNG stream on the attempt rather than on the
+    success counter. Keying it on the counter made a single failed attempt
+    poison every remaining retry: the instance_id was rebuilt from the
+    unchanged counter, the same stream was drawn, the same host was chosen and
+    the same rejection happened, until the retry budget ran out. treasury_hub
+    shipped 5 instances of an intended 75 at the mvp preset that way, which is
+    what broke the mule look-alike ratio in PHASE1-PLAN.md 7a - and the pool
+    was never the constraint. The previous test passes on 5 of 75.
+    """
+    cfg, pop, _, _, benign = injected
+    budget = round(
+        pop.tables["individual"].height
+        * cfg.typologies["prevalence"]["hard_negative_entity_fraction"]
+    )
+    produced: dict[str, int] = {}
+    for ring in benign.rings:
+        name = ring.ring_id.split("-")[1]
+        produced[name] = produced.get(name, 0) + 1
+
+    for cls in hard_negatives.HARD_NEGATIVES:
+        block = cfg.typologies["hard_negatives"].get(cls.name)
+        if not block:
+            continue
+        intended = max(1, int(round(budget * block["share"] / cls.entities_per_instance)))
+        got = produced.get(cls.name, 0)
+        # A generator may legitimately fall a little short when its host pool
+        # is genuinely thin; an order of magnitude is a bug.
+        assert got >= 0.9 * intended, f"{cls.name}: {got} instances of an intended {intended}"
+
+
+def test_entities_per_instance_matches_what_each_generator_labels(injected):
+    """The divisor has to count LABELLED entities, not entities touched.
+
+    `entities_per_instance` converts an entity-prevalence budget into an
+    instance count, so if a generator declares more entities than it labels it
+    silently spends that multiple of the budget. treasury_hub declared 6 - the
+    hub plus its staff - while labelling only the hub, so it produced 75
+    look-alikes where the configured prevalence asks for 450, and the mule
+    look-alike ratio could not reach its target however good the instances
+    were.
+    """
+    _, _, _, _, benign = injected
+    owners: dict[str, set[str]] = {}
+    instances: dict[str, set[str]] = {}
+    for label in benign.labels:
+        if label.subject_type not in ("individual", "legal_entity"):
+            continue
+        name = label.ring_id.split("-")[1]
+        owners.setdefault(name, set()).add(str(label.subject_id))
+        instances.setdefault(name, set()).add(label.ring_id)
+
+    for cls in hard_negatives.HARD_NEGATIVES:
+        if cls.name not in instances:
+            continue
+        measured = len(owners[cls.name]) / len(instances[cls.name])
+        declared = cls.entities_per_instance
+        assert abs(measured - declared) <= 1.0, (
+            f"{cls.name} declares {declared} entities per instance but labels "
+            f"{measured:.2f}; the prevalence budget is divided by the declared "
+            "number, so these have to agree"
+        )
+
+
 def test_all_labels_are_hard_negative_polarity(injected):
     _, _, _, _, benign = injected
     assert {label.polarity for label in benign.labels} == {"hard_negative"}

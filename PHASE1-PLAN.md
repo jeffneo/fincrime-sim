@@ -125,9 +125,9 @@ Each exits on a runnable check, and every milestone runs at `dev` scale.
 | **M0** ✅ | Foundation: uv project, CLI skeleton, `rng.py`, `schema.py`, Neo4j Enterprise + GDS + Studio compose, constraints, RBAC roles, test suite | **Met.** `generate --scale dev` emits 33 schema-valid Parquet tables; `make all` bulk-loads and applies 15 constraints / 29 indexes; GDS 2026.07.0 and Studio reachable; 110 unit tests and 9 live RBAC tests green |
 | **M1** ✅ | Population + background behavior | **Met.** 10K entities / 3 months / 1.37M txns, zero typologies. `fincrime validate` runs 15 statistical and privacy checks, each with a stated band and reason, and passes at both `dev` and `mvp` scale. Generation streams per month: `mvp` builds 55.4M transactions in 2.9 min at 9.0GB peak |
 | **M2** ✅ | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | **Met.** 15 rings / 314 labels at `mvp`; graph loads with ground truth; a structure-only Cypher query recovers the stars *as the demo role*; both baselines run. Calibration: rules recall 0.00 / 0.46 / 0.60 at 1/5/10% budgets, GBM AUC-PR 0.42 (376× lift) |
-| **M3** ◐ | T2, T3, T4 + difficulty tiers | **Partially met.** All four typologies inject at the configured prevalence, produce the documented topology, and are recovered by their Cypher checks. Tier ordering holds for all four; separation clears the 0.15 gate for structuring (0.36) and mule networks (0.36) but not for shell layering (0.07) or CNP fraud (0.15). Two typologies sit below the GBM learnability floor — see §8 |
+| **M3** ✅ | T2, T3, T4 + difficulty tiers | **Met.** All four typologies inject at the configured prevalence, produce the documented topology, and are recovered by their Cypher checks. Every typology now clears the GBM learnability floor — shell layering and CNP fraud only with graph features (0.143 and 0.200 against 0.020 tabular), which is the dataset's point rather than a shortfall. Tier separation clears 0.15 for structuring (0.36) and mule networks (0.56); shell layering (0.07) and CNP tier power remain open in §7a |
 | **M4** ✅ | Hard negatives + blending | **Met.** Four generators; 537 look-alikes against 112 positives at `mvp`. Look-alikes outnumber true positives 4:1 *inside the alert queue*. Difficulty tiers separate cleanly: recall 0.59 easy / 0.45 medium / 0.15 hard |
-| **M5** | Validation + calibration loop | Full report green against §7 acceptance bands; knobs tuned to hit them |
+| **M5** ◐ | Validation + calibration loop | **Partially met.** 27 of 31 checks pass. The GBM floor and the mule look-alike ratio are resolved; four items remain, each with a stated cause and two of them needing a dataset-defining decision rather than a knob — §7a |
 | **M6** | MVP release at `mvp` scale + case-narrative stub | `releases/<version>/`: 100K/12mo dataset, Parquet + Neo4j dump, data dictionary, typology doc, per-ring narrative stub, reproducibility manifest (seed + config hash + git SHA). Demo-role walkthrough passes without reading ground truth |
 
 **The harness moves to M2 deliberately.** Detectability calibration is the schedule risk, not the typology code — deferring all of it to M5 means discovering at M5 that four typologies need re-tuning. One typology measured early de-risks the other three.
@@ -169,54 +169,94 @@ Starting targets. M5 measures them; expect to revise the bands once with justifi
 
 ---
 
-## 7a. Open calibration items (M3 → M5)
+## 7a. Calibration state (M5)
 
-Measured at `mvp`, 63–112 positives per typology:
+Measured at `mvp`, seed 20260915, 63–113 positives per typology. Two GBM
+columns: identical model and folds, the second with `graph_features` joined on.
 
-| Typology | rules recall @1/5/10% | tier recall e/m/h | GBM AUC-PR |
-|---|---|---|---|
-| structuring | 0.08 / 0.49 / 0.62 | 0.59 / 0.49 / 0.23 | 0.447 |
-| mule_network | 0.08 / 0.36 / 0.53 | 0.50 / 0.33 / 0.14 | 0.757 |
-| shell_layering | 0.18 / 0.39 / 0.61 | 0.41 / 0.39 / 0.33 | 0.013 |
-| cnp_fraud | 0.02 / 0.10 / 0.16 | 0.15 / 0.00 / 0.00 | 0.008 |
+| Typology | rings | pos | look-alikes | rules recall @1/5/10% | tier recall e/m/h | GBM tabular | GBM +graph |
+|---|---|---|---|---|---|---|---|
+| structuring | 15 | 112 | 547 | 0.08 / 0.49 / 0.62 | 0.59 / 0.49 / 0.23 | 0.413 | **0.439** |
+| mule_network | 11 | 113 | 450 | 0.05 / 0.49 / 0.61 | 0.68 / 0.48 / 0.12 | 0.728 | **0.728** |
+| shell_layering | 19 | 82 | 275 | 0.18 / 0.39 / 0.61 | 0.41 / 0.39 / 0.33 | 0.020 | **0.143** |
+| cnp_fraud | 6 | 63 | 450 | 0.00 / 0.06 / 0.19 | 0.07 / 0.05 / 0.00 | 0.020 | **0.200** |
 
-Three items remain for the M5 loop, and the first is the interesting one:
+27 of 31 checks pass.
 
-1. **Shell layering and CNP fraud fall below the GBM floor (0.10).** This is a
-   finding about the *baseline*, not necessarily about the data: the baseline
-   is a tabular model over customer-level yearly aggregates, and neither of
-   those typologies is a customer-level phenomenon. Layering is a property of a
-   path through several companies; card fraud is a property of a burst on one
-   card. The Cypher topology checks recover layering chains perfectly well, and
-   the rules baseline finds 0.39 of them at a 5% budget — so the signal is
-   present and reachable, just not through a year of per-customer means. M5
-   either adds graph-derived features to the baseline or records this as the
-   dataset's point: these are the typologies a tabular model cannot see.
-2. **Shell-layering tiers barely separate (0.07).** The hard tier is not much
-   harder than the easy one in practice. The knobs that should do the work —
-   round-number bias, shared directors, decoy activity — are mostly *graph*
-   properties, and the rule that actually catches these chains is the
-   high-risk-jurisdiction wire, which every tier trips equally.
-3. **Mule and layering look-alike ratios are below 2** (0.11 and 0.97). The
-   treasury-hub generator produces only a handful of instances because it needs
-   employers with four or more staff banking here, which is rare at any preset.
+### Resolved
 
-Two more items came out of running the Cypher checks at `mvp` scale (§7b),
-both about signal density over time rather than over the population:
+**Every typology now clears the 0.10 GBM floor, and the two that needed the
+graph to get there are the dataset's argument.** Shell layering goes 0.020 →
+0.143 and CNP fraud 0.020 → 0.200 when topology is added to an otherwise
+identical model; structuring and mule networks, which are customer-level
+phenomena, barely move. That is the result the spec is for: a year of
+per-customer aggregates cannot see a path through several companies or a burst
+on one card, and no amount of tuning the tabular feature set will change it.
+The two numbers are reported side by side rather than folded into one so the
+tabular baseline stays interpretable — see `validate/detectability.py`.
 
-4. **The mule shared-device signal is thin in any short window.** A mule ring
-   runs continuously rather than in a burst — `RING-mule_network-00000` spreads
-   134 receipts over 12 months — and the ring device appears on only a fraction
-   of them. Over calendar 2025 the check recovers the ring with 18 distinct
-   feeders behind one collector; over a quarter it finds nothing at all. Either
-   the generator should concentrate a ring's activity, or the device-sharing
-   rate on ring transactions should rise, or the demo accepts that this one
-   query is year-scoped.
-5. **CNP device reuse is not selective at a one-month scope.** The fixed T4
-   check returns 50 devices with 3+ cards from 3+ owners in June, and none of
-   their cards carry a `cnp_fraud` label — the hits are legitimate shared
-   devices. Consistent with the 0.008 AUC-PR already recorded above; recorded
-   here because it is now visible from Cypher too.
+**The mule look-alike ratio.** Was 0.11 against a target of 2. The cause was
+not the host pool, as first assumed, but two bugs: the hard-negative retry
+loops keyed their RNG stream on the success counter, so one failed attempt
+redrew the identical stream and failed identically until the retry budget ran
+out (treasury_hub shipped 5 instances of an intended 75); and treasury_hub
+declared `entities_per_instance = 6` while labelling only 1, spending six times
+the prevalence budget per instance. Both are now regression-tested.
+
+**The device-sharing signal was noise.** `behavior._sessions` drew a uniformly
+random device from the whole pool for every entity transaction, so 1,000 dev
+companies' 196,258 payments landed across all 7,926 devices and the median
+device carried 26 unrelated accounts. Businesses now bank from one to three
+stable devices; the median device carries 1 account and the 99th percentile 3.
+The same fault existed in IP assignment, where uniform roaming put a median of
+25 owners on every address; home IP now follows the device, which already
+encodes household sharing, and roaming goes to one of two stable alternates.
+Median owners per IP is 6 — left there deliberately, because carrier-grade NAT
+really does put many subscribers behind one address. Devices are the sharp
+signal; IPs are honestly noisy.
+
+### Open
+
+1. **Shell-layering tiers do not separate** (0.07 against ≥0.15). Unchanged and
+   still the most interesting item. The knobs that should do the work —
+   round-number bias, shared directors, decoy activity — are graph properties,
+   while the rule that actually catches these chains is the
+   high-risk-jurisdiction wire, which every tier trips equally. Worth noting
+   that tier separation is measured against the *rules* queue, so it partly
+   measures what the rules happen to key on rather than how hard the ring is.
+   Measuring it against the graph-augmented model would be a truer test of D6 —
+   but changing the metric because the current one fails is how a gate stops
+   meaning anything, so it needs deciding on its merits, not here.
+2. **Layering look-alikes do not compete** (0.91 against ≥2). 275 holding
+   structures exist and the population ratio is 3.4:1, but they reach the alert
+   queue far less often than layering rings do. A multinational group really
+   does pay foreign subsidiaries, so giving holding structures some
+   cross-border intra-group payments would make them trip the same
+   high-risk-jurisdiction wire rule that catches the rings. Realism-justified
+   and untried.
+3. **CNP tier separation is unmeasurable at this base rate, and that is a real
+   trade rather than a bug.** A fixed entity budget divided by instance size
+   buys the ring count, so cnp_fraud's large card batches buy only 6 rings —
+   two per tier. Shrinking them was tried and measured: `cards_per_device`
+   [10,40] → [6,15] took AUC-PR from 0.170 to **0.012**, because unlike a mule
+   ring, this typology's signal *is* the number of cards behind one device.
+   Reverted. Getting both detectability and tier power needs a larger share of
+   the illicit budget for this typology, or a higher base rate than 0.4% — a
+   dataset-defining choice, not a knob.
+4. **The rules baseline is nearly blind to CNP fraud** (0.06 at a 5% budget,
+   against a 0.10–0.60 band). `card_velocity_txn_per_hour` and
+   `cnp_amount_ratio` exist but fire on almost none of it. Either the rule set
+   needs a CNP rule that works the way a real issuer's does, or the band is
+   wrong for a typology whose detection is a card-network problem rather than
+   an AML-monitoring one.
+
+Two items recorded here earlier were wrong and are withdrawn. The mule
+shared-device signal is **not** thin in a short window: a ring's transactions
+span 32 days, all carry a device, and only 2 distinct devices appear across the
+whole ring — what looked like a 12-month smear was the collector's own
+background p2p traffic. And CNP device reuse looked unselective because of the
+random-device bug above, not because of the query. Over a window containing a
+ring the T3 check returns 6 hits, all illicit, no false positives.
 
 ## 7b. Query performance at mvp scale — resolved
 

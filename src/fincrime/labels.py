@@ -73,6 +73,7 @@ def build(result: InjectionResult, resolved_tags: pl.DataFrame) -> dict[str, pl.
         {
             "ring_id": [r.ring_id for r in result.rings],
             "typology": [r.typology for r in result.rings],
+            "polarity": [r.polarity for r in result.rings],
             "difficulty_tier": [r.difficulty_tier for r in result.rings],
             "knob_digest": [r.knob_digest for r in result.rings],
             "injected_from": [r.injected_from for r in result.rings],
@@ -81,6 +82,7 @@ def build(result: InjectionResult, resolved_tags: pl.DataFrame) -> dict[str, pl.
         schema={
             "ring_id": pl.String,
             "typology": pl.String,
+            "polarity": pl.String,
             "difficulty_tier": pl.String,
             "knob_digest": pl.String,
             "injected_from": pl.Date,

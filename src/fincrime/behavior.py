@@ -1002,15 +1002,34 @@ def _sessions(
 
     owner = pop.account_owner[data["from_account"][idx]]
     is_entity = pop.account_owner_is_entity[data["from_account"][idx]]
+    # Businesses bank from their own one-to-three devices. This used to draw a
+    # uniformly random device from the entire pool per transaction, which made
+    # every device in the dataset look shared by dozens of unrelated accounts
+    # and destroyed the shared-device signal the mule typology depends on
+    # (see population._devices).
+    entity_owner = np.clip(owner, 0, len(pop.entity_device) - 1)
+    entity_pick = pop.entity_device[
+        entity_owner, rng.integers(0, pop.entity_device.shape[1], len(idx))
+    ]
     device = np.where(
         is_entity,
-        rng.integers(0, len(pop.device_ids), len(idx)),
+        entity_pick,
         pop.individual_device[np.clip(owner, 0, len(pop.individual_device) - 1)],
     )
-    # Customers mostly reconnect from the same IP; a minority roam.
-    home_ip = owner % len(pop.ip_ids)
+    # Home IP follows the DEVICE, which already encodes household sharing: two
+    # people who share a phone share the broadband it connects through. Keying
+    # it on the owner index instead needed a second, independent notion of who
+    # lives together, and collided individuals with entities because the two
+    # index spaces are separate sequences.
+    home_ip = device % len(pop.ip_ids)
+    # A minority of sessions roam - but to one of two places this customer
+    # habitually connects from, not to a fresh address drawn from the entire
+    # pool. Uniform roaming made every IP in the dataset accumulate dozens of
+    # unrelated customers (median 25 owners per IP at the dev preset), the same
+    # false-sharing problem the entity devices had.
     roam = rng.random(len(idx)) < 0.15
-    ip = np.where(roam, rng.integers(0, len(pop.ip_ids), len(idx)), home_ip)
+    alternate = (home_ip * 2_654_435_761 + rng.integers(1, 3, len(idx)) * 97) % len(pop.ip_ids)
+    ip = np.where(roam, alternate, home_ip)
 
     return (
         pl.DataFrame({"start_id": txn_ids[idx], "end_id": pop.device_ids[device]}),

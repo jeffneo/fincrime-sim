@@ -68,6 +68,11 @@ class RingSpec:
     knobs: dict[str, Any]
     injected_from: date
     injected_to: date
+    #: "illicit" | "hard_negative". Defaults to illicit because the typology
+    #: generators are the common case; every hard-negative generator sets it
+    #: explicitly. A look-alike is stamped with the typology it mimics, so
+    #: without this the two are indistinguishable on the Ring node itself.
+    polarity: str = "illicit"
 
     @property
     def knob_digest(self) -> str:

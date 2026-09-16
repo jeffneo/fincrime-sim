@@ -128,6 +128,9 @@ class Population:
     device_ids: np.ndarray
     ip_ids: np.ndarray
     individual_device: np.ndarray
+    #: (n_entities, 3) device indices per business. Columns repeat when a
+    #: business has fewer than three, so a random column favours the first.
+    entity_device: np.ndarray
     #: Employment: individual -> entity index, or -1 for external/none.
     employer: np.ndarray
     merchant_ids: np.ndarray
@@ -187,8 +190,8 @@ def build(cfg: RunConfig, rng: StreamRegistry) -> Population:
     phones, ind_phone = _phones(rng.get("population", "phone"), n_ind)
     tables["phone_number"] = phones
 
-    devices, ind_device = _devices(
-        cfg, rng.get("population", "device"), n_ind, household_of_individual
+    devices, ind_device, ent_device = _devices(
+        cfg, rng.get("population", "device"), n_ind, household_of_individual, n_ent
     )
     tables["device"] = devices
 
@@ -247,6 +250,7 @@ def build(cfg: RunConfig, rng: StreamRegistry) -> Population:
         device_ids=devices["device_id"].to_numpy(),
         ip_ids=tables["ip_address"]["ip_id"].to_numpy(),
         individual_device=ind_device,
+        entity_device=ent_device,
         employer=employer,
         merchant_ids=merch_state["id"],
         merchant_mcc_idx=merch_state["mcc_idx"],
@@ -458,15 +462,30 @@ def _phones(rng: np.random.Generator, n: int) -> tuple[pl.DataFrame, np.ndarray]
     return df, np.arange(n)
 
 
+#: Distinct devices a business banks from. A company pays its suppliers from
+#: the finance machine, sometimes a second one - not from a different device
+#: every time.
+_MAX_ENTITY_DEVICES = 3
+
+
 def _devices(
-    cfg: RunConfig, rng: np.random.Generator, n_ind: int, household: np.ndarray
-) -> tuple[pl.DataFrame, np.ndarray]:
-    """One device per individual, with household members sometimes sharing one.
+    cfg: RunConfig, rng: np.random.Generator, n_ind: int, household: np.ndarray, n_ent: int
+) -> tuple[pl.DataFrame, np.ndarray, np.ndarray]:
+    """One device per individual, one to three per business.
 
     Device sharing inside a household is the legitimate twin of the mule-ring
     shared-device signal. Around a fifth of individuals share rather than own,
     which puts enough shared-device pairs in the background that the signal
     has to be about *who* shares, not *that* they share.
+
+    Businesses used to have no devices at all: ``behavior._sessions`` drew a
+    uniformly random device from the whole pool for every entity transaction.
+    At the dev preset that put 1,000 companies' 196,258 payments across all
+    7,926 devices, so the median device carried 26 unrelated accounts and
+    "accounts sharing a device" meant nothing - it fired on everyone. It also
+    manufactured the false positives the T4 check was returning: 50 devices
+    with three or more cards from three or more owners, none of them labelled.
+    A shared-device signal is only a signal if sharing is rare.
     """
     shares_household_device = rng.random(n_ind) < 0.22
     device_of_individual = np.arange(n_ind)
@@ -480,7 +499,19 @@ def _devices(
     remap[owned] = np.arange(len(owned))
     device_of_individual = remap[device_of_individual]
 
-    n_dev = len(owned)
+    n_dev_individual = len(owned)
+
+    # Business devices, appended after the personal ones. Each entity gets a
+    # contiguous run of 1-3; the (n_ent, 3) table repeats the first device when
+    # it has fewer, so drawing a uniformly random column biases towards the
+    # main workstation, which is the realistic shape.
+    per_entity = rng.integers(1, _MAX_ENTITY_DEVICES + 1, n_ent)
+    first = n_dev_individual + np.concatenate([[0], np.cumsum(per_entity)[:-1]])
+    entity_device = np.empty((n_ent, _MAX_ENTITY_DEVICES), dtype=np.int64)
+    for column in range(_MAX_ENTITY_DEVICES):
+        entity_device[:, column] = first + np.minimum(column, per_entity - 1)
+
+    n_dev = n_dev_individual + int(per_entity.sum())
     df = pl.DataFrame(
         {
             "device_id": _pad("DEV", n_dev),
@@ -495,7 +526,7 @@ def _devices(
             "is_emulator": rng.random(n_dev) < 0.005,
         }
     )
-    return df, device_of_individual
+    return df, device_of_individual, entity_device
 
 
 def _ips(rng: np.random.Generator, n_ind: int) -> pl.DataFrame:

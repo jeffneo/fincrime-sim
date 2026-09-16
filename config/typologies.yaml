@@ -94,9 +94,17 @@ typologies:
   # fan-in from unrelated payers, forwarding to a small collector set.
   mule_network:
     enabled: true
+    # Ring sizes were [15,40]/[8,20]/[3,8]. At a fixed 0.4% entity base rate a
+    # typology's entity budget buys `budget / mean_ring_size` rings, so large
+    # rings bought only FIVE mule rings in the whole mvp preset - one or two
+    # per difficulty tier. Tier recall is measured per entity, so the sample
+    # size looked adequate while actually being one ring's members repeated;
+    # easy-vs-hard separation was ring-to-ring variance wearing a tier label.
+    # Smaller cells buy ~13 rings from the same budget and are the commoner
+    # real shape: a recruiter running a handful of accounts, not forty.
     tiers:
       easy:
-        ring_size: [15, 40]
+        ring_size: [6, 12]
         collectors: [1, 2]
         device_sharing_rate: [0.7, 1.0]
         account_age_days_at_first_use: [1, 20]
@@ -104,7 +112,7 @@ typologies:
         forward_latency_hours: [1, 12]
         recruitment_ramp_days: [5, 15]
       medium:
-        ring_size: [8, 20]
+        ring_size: [5, 10]
         collectors: [2, 4]
         device_sharing_rate: [0.3, 0.6]
         account_age_days_at_first_use: [20, 120]
@@ -112,7 +120,7 @@ typologies:
         forward_latency_hours: [12, 72]
         recruitment_ramp_days: [15, 60]
       hard:
-        ring_size: [3, 8]
+        ring_size: [3, 6]
         collectors: [3, 6]                # no obvious hub
         device_sharing_rate: [0.0, 0.15]  # the headline signal, removed
         account_age_days_at_first_use: [120, 400]
@@ -124,6 +132,20 @@ typologies:
   # escalation, device/IP and geography mismatch.
   cnp_fraud:
     enabled: true
+    # Card counts stay large, and this was MEASURED rather than assumed.
+    # Shrinking the easy tier to [6,15] - the same trade that took mule_network
+    # from 5 rings to 11 and improved its tier separation - took this
+    # typology's AUC-PR with graph features from 0.170 to 0.012. The reason the
+    # two differ: a mule ring's signal is accounts sharing a device, which
+    # survives a smaller ring, whereas this typology's signal IS the number of
+    # cards behind one device. Shrinking the instance attacks the feature
+    # directly.
+    #
+    # The consequence is accepted and recorded in PHASE1-PLAN.md 7a: a fixed
+    # entity budget divided by a large instance size buys only six rings, so
+    # tier separation for cnp_fraud is unmeasurable at this base rate. Getting
+    # both would need a larger share of the illicit budget for this typology,
+    # or a higher base rate - a dataset-defining choice, not a knob.
     tiers:
       easy:
         cards_per_device: [10, 40]

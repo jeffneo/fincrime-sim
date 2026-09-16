@@ -67,6 +67,13 @@ Both targets, same six queries in `neo4j/demo/`, one-month window
 Every number includes ~1.5s of `cypher-shell` JVM startup, so the queries
 themselves are faster than this table suggests.
 
+**Warm the queries before demoing.** These are steady-state figures. The first
+pass after a `make load` runs against an empty page cache and is far slower -
+measured on the M5 reload of the same six queries: 27s, 8s, 16s, 27s, 2s, and
+one that did not finish inside 300s, against 7s, 3s, 2s, 7s, 2s, 2s on the
+second pass. Nothing is wrong when that happens; every index is ONLINE and the
+store is simply not in memory yet. Run the set once after any reload.
+
 The laptop is not slower than Aura here, and on two queries it is faster. That
 is partly network - every Aura round trip crosses the internet - and partly
 that the working set for an index-driven month-scoped query is small enough to

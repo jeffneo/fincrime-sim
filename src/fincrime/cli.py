@@ -226,17 +226,20 @@ def validate(
         detail = Table(title="Detectability", header_style="bold")
         for column in (
             "typology",
+            "rings",
             "pos",
             "look-alikes",
             "rules recall @1/5/10%",
             "easy/med/hard recall",
-            "GBM AUC-PR",
+            "GBM tabular",
+            "GBM +graph",
             "lift",
         ):
             detail.add_column(column)
         for s_ in scores:
             detail.add_row(
                 s_.typology,
+                f"{s_.rings}",
                 f"{s_.positives:,}",
                 f"{s_.hard_negatives:,}",
                 " / ".join(f"{v:.2f}" for v in s_.recall_curve.values()),
@@ -244,6 +247,7 @@ def validate(
                     f"{s_.tier_recall.get(t, float('nan')):.2f}" for t in ("easy", "medium", "hard")
                 ),
                 f"{s_.gbm_auc_pr:.3f}",
+                f"{s_.gbm_graph_auc_pr:.3f}",
                 f"{s_.lift:.0f}x",
             )
         console.print(detail)
