@@ -792,6 +792,23 @@ ALL_NODE_TABLES: list[NodeTable] = [*NODE_TABLES, *GROUND_TRUTH_TABLES]
 NODES_BY_NAME: dict[str, NodeTable] = {t.name: t for t in ALL_NODE_TABLES}
 EDGES_BY_NAME: dict[str, EdgeTable] = {t.name: t for t in EDGE_TABLES}
 
+#: Composite indexes, as ``(label, (property, ...))``.
+#:
+#: Single-column indexes are declared per column via ``Col.indexed``. These are
+#: the multi-column ones the demo queries actually need, and they are not
+#: optional at scale: the structuring recovery query starts from
+#: ``txn_class = 'p2p_transfer' AND amount_usd > 1000``, which selects 82,237
+#: rows out of 57.3M. Without an index the planner scans all of them, and the
+#: query does not return inside ten minutes.
+#:
+#: Neo4j uses a composite index when every leading property is an equality
+#: predicate and the last may be a range, which is exactly the shape of both
+#: entries here.
+COMPOSITE_INDEXES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Transaction", ("txn_class", "amount_usd")),
+    ("Transaction", ("channel", "direction", "amount_usd")),
+)
+
 #: The marker label that the RBAC deny rule in neo4j/nes-setup.cypher targets.
 GROUND_TRUTH_LABEL = "GroundTruth"
 

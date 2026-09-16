@@ -26,6 +26,7 @@ import polars as pl
 from ..config import RunConfig
 from ..schema import (
     ALL_NODE_TABLES,
+    COMPOSITE_INDEXES,
     EDGE_TABLES,
     NODES_BY_NAME,
     EdgeTable,
@@ -239,4 +240,11 @@ def constraints_cypher() -> str:
                     f"FOR (n:{table.label}) ON (n.{col.name});"
                 )
         lines.append("")
+
+    lines.append("// Composite indexes for the demo query patterns.")
+    for label, properties in COMPOSITE_INDEXES:
+        name = f"{label.lower()}_{'_'.join(properties)}"
+        props = ", ".join(f"n.{p}" for p in properties)
+        lines.append(f"CREATE INDEX {name} IF NOT EXISTS FOR (n:{label}) ON ({props});")
+    lines.append("")
     return "\n".join(lines)

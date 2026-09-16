@@ -201,6 +201,20 @@ Three items remain for the M5 loop, and the first is the interesting one:
    treasury-hub generator produces only a handful of instances because it needs
    employers with four or more staff banking here, which is rare at any preset.
 
+## 7b. Query performance at mvp scale — open
+
+The detection queries are **not interactive** at 57.3M transactions: the
+structuring recovery query does not return inside ten minutes, and the cash-side
+aggregation alone takes three. The composite indexes added on 2026-09-16 work
+(82,237-row seek in 1.6s); the cost is fan-out from accounts and a ~5x RBAC
+penalty on the demo role. Full measurements, causes and untried options are in
+[PERFORMANCE-NOTES.md](PERFORMANCE-NOTES.md).
+
+This does not affect the dataset's correctness or the M1-M4 calibration, all of
+which is computed from Parquet. It does mean the interactive demo currently
+runs on the `dev` preset, and that M6 needs a performance pass before the
+release is demoable at full scale.
+
 ## 8. Risks
 
 | Risk | Mitigation |
