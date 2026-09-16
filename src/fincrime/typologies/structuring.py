@@ -194,7 +194,6 @@ class Structuring:
             forward_ts.append(int(last + int(r.integers(4 * 3600, 3 * _SECONDS_PER_DAY))))
 
         result = InjectionResult()
-        offset = ctx.label_offset + len(result.labels)
 
         # --- labels for the standing entities ---
         labels: list[LabelSpec] = []
@@ -273,8 +272,8 @@ class Structuring:
         )
         labels.append(deposit_label)
         labels.append(forward_label)
-        deposit_tag = offset + len(labels) - 2
-        forward_tag = offset + len(labels) - 1
+        deposit_tag = len(labels) - 2
+        forward_tag = len(labels) - 1
 
         result.labels = labels
         result.pending.add(

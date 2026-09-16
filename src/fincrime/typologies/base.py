@@ -104,7 +104,15 @@ class PendingTransactions:
         direction: str,
         label_tag: np.ndarray,
         to_account: np.ndarray | None = None,
+        merchant: np.ndarray | None = None,
+        card: np.ndarray | None = None,
     ) -> None:
+        """Queue transactions, split by the month each falls in.
+
+        ``merchant`` and ``card`` are as necessary as the amount for a card
+        transaction: the background attaches both to every card row, so an
+        injected one without them would be identifiable by their absence alone.
+        """
         if len(from_account) == 0:
             return
         months = ts.astype("datetime64[M]")
@@ -115,6 +123,8 @@ class PendingTransactions:
                 {
                     "from_account": from_account[mask],
                     "to_account": None if to_account is None else to_account[mask],
+                    "merchant": None if merchant is None else merchant[mask],
+                    "card": None if card is None else card[mask],
                     "amount": amount[mask],
                     "ts": ts[mask],
                     "txn_class": txn_class,
@@ -133,15 +143,30 @@ class PendingTransactions:
 
 @dataclass(slots=True)
 class InjectionResult:
+    """One or more injected instances: their rings, labels and transactions.
+
+    **Tag numbering contract.** A generator numbers its transaction tags
+    relative to its *own* label list, starting at zero. :meth:`extend` rebases
+    them as it merges. Every generator producing absolute indices instead would
+    be wrong the moment it built a second instance — each instance appends
+    labels, so the second one's tags would point at the first one's labels and
+    silently attach its transactions to the wrong ring.
+    """
+
     rings: list[RingSpec] = field(default_factory=list)
     labels: list[LabelSpec] = field(default_factory=list)
     pending: PendingTransactions = field(default_factory=PendingTransactions)
 
     def extend(self, other: InjectionResult) -> None:
+        offset = len(self.labels)
         self.rings.extend(other.rings)
         self.labels.extend(other.labels)
         for key, chunks in other.pending.by_month.items():
-            self.pending.by_month[key].extend(chunks)
+            for chunk in chunks:
+                if offset:
+                    tags = chunk["label_tag"]
+                    chunk = {**chunk, "label_tag": np.where(tags >= 0, tags + offset, tags)}
+                self.pending.by_month[key].append(chunk)
 
 
 @dataclass(slots=True)
@@ -256,3 +281,17 @@ def _ring_budget(name: str, entity_budget: int, spec: dict[str, Any]) -> int:
                 break
     mean_size = float(np.mean(sizes)) if sizes else 5.0
     return max(1, int(round(entity_budget / mean_size)))
+
+
+def claimed(result: InjectionResult, pop: Population) -> set[int]:
+    """Account indices already used by an injection run.
+
+    Recovered from the labels rather than threaded through, so the hard-negative
+    engine can be handed the set without the two engines sharing mutable state.
+    """
+    account_index = {str(a): i for i, a in enumerate(pop.account_ids)}
+    return {
+        account_index[label.subject_id]
+        for label in result.labels
+        if label.subject_type == "account" and label.subject_id in account_index
+    }

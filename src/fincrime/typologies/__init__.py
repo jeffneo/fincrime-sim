@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .base import InjectionResult, PendingTransactions, Typology, inject
+from .base import InjectionResult, PendingTransactions, Typology, claimed, inject
 from .structuring import Structuring
 
 #: Registry. M3 adds shell_layering, mule_network and cnp_fraud here.
@@ -14,5 +14,6 @@ __all__ = [
     "PendingTransactions",
     "Structuring",
     "Typology",
+    "claimed",
     "inject",
 ]

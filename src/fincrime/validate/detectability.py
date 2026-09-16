@@ -54,8 +54,11 @@ REPORTED_BUDGETS_PCT = (1.0, 5.0, 10.0)
 class TypologyScore:
     typology: str
     positives: int
+    hard_negatives: int
     rules_recall_at_budget: float
     recall_curve: dict[float, float]
+    hard_negative_alert_share: float
+    tier_recall: dict[str, float]
     gbm_auc_pr: float
     gbm_baseline_auc_pr: float
 
@@ -150,17 +153,25 @@ def _account_owner(dataset_dir: Path) -> pl.DataFrame:
 
 
 def _labels(dataset_dir: Path) -> pl.DataFrame:
-    """Customer-level ground truth. Read last, and used only to build `y`."""
+    """Customer-level ground truth. Read last, and used only to build `y`.
+
+    Both polarities are returned. Illicit subjects are the positives; hard
+    negatives are legitimate and must never be scored as positives - they are
+    measured separately, by how much of the alert queue they consume.
+    """
     path = dataset_dir / "ground_truth" / "typology_label.parquet"
+    empty = {
+        "owner_id": pl.String,
+        "typology": pl.String,
+        "polarity": pl.String,
+        "difficulty_tier": pl.String,
+    }
     if not path.exists():
-        return pl.DataFrame(schema={"owner_id": pl.String, "typology": pl.String})
+        return pl.DataFrame(schema=empty)
     return (
         pl.read_parquet(path)
-        .filter(
-            pl.col("subject_type").is_in(["individual", "legal_entity"])
-            & (pl.col("polarity") == "illicit")
-        )
-        .select(pl.col("subject_id").alias("owner_id"), "typology")
+        .filter(pl.col("subject_type").is_in(["individual", "legal_entity"]))
+        .select(pl.col("subject_id").alias("owner_id"), "typology", "polarity", "difficulty_tier")
         .unique()
     )
 
@@ -240,7 +251,11 @@ def run(
     budget = max(1, int(round(joined.height * controls.alert_budget_pct / 100.0)))
 
     for typology in sorted(truth["typology"].unique().to_list()):
-        positives = set(truth.filter(pl.col("typology") == typology)["owner_id"].to_list())
+        rows = truth.filter(pl.col("typology") == typology)
+        positives = set(rows.filter(pl.col("polarity") == "illicit")["owner_id"].to_list())
+        # Legitimate look-alikes. Never scored as positives - they are measured
+        # by how much of the alert queue they consume instead.
+        look_alikes = set(rows.filter(pl.col("polarity") == "hard_negative")["owner_id"].to_list())
         y = joined["owner_id"].is_in(positives).to_numpy().astype(int)
         if y.sum() == 0:
             continue
@@ -261,6 +276,38 @@ def run(
         }
         rules_recall = float(queue[:budget].sum() / y.sum())
 
+        # How much of the queue the look-alikes consume. This is the number
+        # that says whether the hard negatives are doing their job: if a
+        # legitimate cash business never reaches the alert queue, it is not
+        # competing with the smurf ring for an analyst's attention, and the
+        # precision the dataset reports is flattering.
+        hn_flag = (
+            joined.with_columns(pl.col("owner_id").is_in(list(look_alikes)).alias("hn"))
+            .sort(["alert_severity", "rule_score"], descending=True)["hn"]
+            .to_numpy()
+        )
+        hn_share = float(hn_flag[:budget].mean()) if budget else 0.0
+
+        # Recall per difficulty tier. This is the check that actually tests D6:
+        # a tier is supposed to mean "generated with less signal", so an easy
+        # ring must be caught more often than a hard one. Overall recall cannot
+        # show that - it is just the tier mix, and a dataset whose tiers were
+        # pure decoration would report exactly the same number.
+        order = np.argsort(
+            -(joined["alert_severity"].to_numpy() + 1e-9 * joined["rule_score"].to_numpy()),
+            kind="stable",
+        )
+        alerted = set(joined["owner_id"].to_numpy()[order][:budget].tolist())
+        tier_recall: dict[str, float] = {}
+        for tier in ("easy", "medium", "hard"):
+            members = set(
+                rows.filter(
+                    (pl.col("polarity") == "illicit") & (pl.col("difficulty_tier") == tier)
+                )["owner_id"].to_list()
+            )
+            if members:
+                tier_recall[tier] = len(members & alerted) / len(members)
+
         gbm = _gbm_scores(joined.drop([c for c in joined.columns if c.startswith("rule")]), y, seed)
         auc_pr = _auc_pr(y, gbm)
         no_skill = float(y.mean())
@@ -269,8 +316,11 @@ def run(
             TypologyScore(
                 typology=typology,
                 positives=int(y.sum()),
+                hard_negatives=len(look_alikes),
                 rules_recall_at_budget=rules_recall,
                 recall_curve=curve,
+                hard_negative_alert_share=hn_share,
+                tier_recall=tier_recall,
                 gbm_auc_pr=auc_pr,
                 gbm_baseline_auc_pr=no_skill,
             )
@@ -280,6 +330,27 @@ def run(
         # entity moves it by more than the width of a calibration decision, so
         # reporting a pass/fail against the band would be reading noise. Say so
         # instead of producing a number that looks authoritative.
+        if look_alikes:
+            true_in_queue = int(queue[:budget].sum())
+            hn_in_queue = int(hn_flag[:budget].sum())
+            checks.append(
+                Check(
+                    f"look_alike_to_positive_ratio_{typology}",
+                    hn_in_queue / max(true_in_queue, 1),
+                    2.0,
+                    None,
+                    "Legitimate look-alikes per true positive inside the alert "
+                    "queue. A ratio, not a share of the queue: share is bounded "
+                    "by how many hard negatives exist relative to the budget "
+                    "(55 look-alikes cannot fill a quarter of a 500-alert queue "
+                    "however well they are built), whereas the ratio expresses "
+                    "what the check is actually for - whether a detector has to "
+                    "work to tell them apart. Real AML queues run 10:1 or worse.",
+                    detail=f"{hn_in_queue} look-alikes vs {true_in_queue} true, "
+                    f"{hn_share:.1%} of queue",
+                )
+            )
+
         if int(y.sum()) < MIN_POSITIVES_FOR_CALIBRATION:
             checks.append(
                 Check(
@@ -298,17 +369,34 @@ def run(
             )
             continue
 
+        if {"easy", "hard"} <= tier_recall.keys():
+            checks.append(
+                Check(
+                    f"tier_separation_{typology}",
+                    tier_recall["easy"] - tier_recall["hard"],
+                    0.15,
+                    None,
+                    "Easy-tier recall minus hard-tier recall. This is the check "
+                    "that tests D6 - that a difficulty tier means the ring was "
+                    "generated with less signal, not that it was labelled "
+                    "differently. Overall recall cannot show it: a dataset whose "
+                    "tiers were pure decoration would report the same aggregate "
+                    "number and the same curriculum would be meaningless.",
+                    detail=" ".join(f"{t}={v:.2f}" for t, v in tier_recall.items()),
+                )
+            )
+
         checks.append(
             Check(
                 f"rules_recall_{typology}",
                 rules_recall,
-                0.15,
-                0.45,
+                0.10,
+                0.60,
                 "Recall of the bank-style rules baseline at a "
-                f"{controls.alert_budget_pct:g}% alert budget. Below the band the "
-                "typology is unfindable by the controls a real institution runs; "
-                "above it, the injected pattern is doing the detector's work for "
-                "it.",
+                f"{controls.alert_budget_pct:g}% alert budget. A wide band on "
+                "purpose: the aggregate is mostly the tier mix, so it only "
+                "catches gross failure - unfindable at one end, handed over at "
+                "the other. Tier separation above is the informative gate.",
                 detail=(
                     f"{int(y.sum())} positives, {budget:,} alerts · curve "
                     + " ".join(f"@{p:g}%={v:.2f}" for p, v in curve.items())

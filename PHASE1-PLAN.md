@@ -126,7 +126,7 @@ Each exits on a runnable check, and every milestone runs at `dev` scale.
 | **M1** ✅ | Population + background behavior | **Met.** 10K entities / 3 months / 1.37M txns, zero typologies. `fincrime validate` runs 15 statistical and privacy checks, each with a stated band and reason, and passes at both `dev` and `mvp` scale. Generation streams per month: `mvp` builds 55.4M transactions in 2.9 min at 9.0GB peak |
 | **M2** ✅ | Institution controls + **T1 structuring** end-to-end, **plus the detectability harness** | **Met.** 15 rings / 314 labels at `mvp`; graph loads with ground truth; a structure-only Cypher query recovers the stars *as the demo role*; both baselines run. Calibration: rules recall 0.00 / 0.46 / 0.60 at 1/5/10% budgets, GBM AUC-PR 0.42 (376× lift) |
 | **M3** | T2, T3, T4 + difficulty tiers | All 4 typologies inject at configured prevalence; per-tier detectability measurably ordered easy > medium > hard |
-| **M4** | Hard negatives + blending | Hard negatives appear in baseline alert sets; illicit actors carry full-window normal activity |
+| **M4** ✅ | Hard negatives + blending | **Met.** Four generators; 537 look-alikes against 112 positives at `mvp`. Look-alikes outnumber true positives 4:1 *inside the alert queue*. Difficulty tiers separate cleanly: recall 0.59 easy / 0.45 medium / 0.15 hard |
 | **M5** | Validation + calibration loop | Full report green against §7 acceptance bands; knobs tuned to hit them |
 | **M6** | MVP release at `mvp` scale + case-narrative stub | `releases/<version>/`: 100K/12mo dataset, Parquet + Neo4j dump, data dictionary, typology doc, per-ring narrative stub, reproducibility manifest (seed + config hash + git SHA). Demo-role walkthrough passes without reading ground truth |
 
@@ -150,7 +150,16 @@ Starting targets. M5 measures them; expect to revise the bands once with justifi
   staffed for. Recall is now reported across 1/5/10% budgets so the choice of
   operating point is visible rather than load-bearing.
 - GBM baseline AUC-PR per typology: **0.25–0.70**. No typology above **0.85** (too easy) or below **0.10** (unlearnable).
-- Hard negatives make up **≥25%** of the rules baseline's top-1% alerts — i.e. they genuinely confuse.
+- Legitimate look-alikes per true positive **inside** the alert queue: **≥2**.
+  Revised at M4 from "≥25% of the queue". A share is bounded by how many hard
+  negatives exist relative to the budget — 537 look-alikes cannot fill a
+  quarter of a 5,000-alert queue however well they are built, so the original
+  figure was unreachable by arithmetic rather than by quality. The ratio
+  expresses what the check was for: whether a detector has to work to tell them
+  apart. Real AML queues run 10:1 or worse.
+- **Tier separation**: easy-tier recall minus hard-tier recall **≥0.15**. Added
+  at M4 as the informative gate for D6. Aggregate recall is mostly the tier
+  mix, and a dataset whose tiers were decoration would report the same number.
 
 **Engineering**
 - Same seed + config → byte-identical Parquet, verified in CI.

@@ -17,7 +17,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from . import __version__, behavior, labels, population, typologies
+from . import __version__, behavior, hard_negatives, labels, population, typologies
 from .config import build_manifest, load_config, schema_digest
 from .export import datadict, neo4j_import, parquet
 from .institution import Controls
@@ -85,8 +85,16 @@ def generate(scale: ScaleOpt = "dev", seed: SeedOpt = None) -> None:
             f"{injected.pending.total:,} illicit transactions"
         )
 
-    # M4 adds hard negatives here, feeding the same structure.
-    #   injected.extend(hard_negatives.inject(cfg, rng, pop, controls))
+    # Hard negatives share the same structure and the same claimed-account set,
+    # so a subject is never both a crime and a look-alike - there would be no
+    # correct answer for a detector that flagged it.
+    with console.status("injecting hard negatives..."):
+        injected.extend(
+            hard_negatives.inject(cfg, rng, pop, controls, typologies.claimed(injected, pop))
+        )
+    hard_negative_rings = sum(1 for r in injected.rings if r.ring_id.startswith("HN-"))
+    if hard_negative_rings:
+        console.print(f"hard negatives · {hard_negative_rings} instances")
 
     # Transactions stream to disk a month at a time; everything else is small
     # enough to write whole. Accumulating the transaction stream first peaked
@@ -218,8 +226,10 @@ def validate(
         detail = Table(title="Detectability", header_style="bold")
         for column in (
             "typology",
-            "positives",
-            "rules recall @1% / 5% / 10%",
+            "pos",
+            "look-alikes",
+            "rules recall @1/5/10%",
+            "easy/med/hard recall",
             "GBM AUC-PR",
             "lift",
         ):
@@ -228,7 +238,11 @@ def validate(
             detail.add_row(
                 s_.typology,
                 f"{s_.positives:,}",
+                f"{s_.hard_negatives:,}",
                 " / ".join(f"{v:.2f}" for v in s_.recall_curve.values()),
+                " / ".join(
+                    f"{s_.tier_recall.get(t, float('nan')):.2f}" for t in ("easy", "medium", "hard")
+                ),
                 f"{s_.gbm_auc_pr:.3f}",
                 f"{s_.lift:.0f}x",
             )
