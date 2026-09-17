@@ -6,6 +6,8 @@ typologies — over a Neo4j property graph.
 
 - [Spec](financial-crime-simulator-spec.md) — product and technical spec
 - [Phase 1 plan](PHASE1-PLAN.md) — MVP scope, decisions, milestones, acceptance criteria
+- [Bloom demo bundle](BLOOM.md) — seven saved search phrases for a five-minute walkthrough
+- [Performance notes](PERFORMANCE-NOTES.md) — what is fast, what is not, and why
 
 **Status: M6 — release payload cut.** The pipeline generates a labeled
 population with four crime typologies and four hard-negative look-alikes,
@@ -121,6 +123,7 @@ src/fincrime/
                    typologydoc (generated from the generator docstrings)
 neo4j/             compose provisioning, RBAC, generated constraints
   demo/            the demo query set - analyst-runnable, time-scoped, timed
+  gds/             graph-algorithm walkthrough: project, communities, score
   typology_checks  topology recovery + admin scoring against the answer key
 scripts/           bench-demo.sh, which times neo4j/demo against either target
 tests/             schema guards, RNG independence, determinism, live RBAC
