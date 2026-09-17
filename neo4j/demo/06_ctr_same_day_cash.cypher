@@ -6,6 +6,7 @@
 // A wide aggregation rather than a traversal, and the cheapest of the heavy
 // queries: one index seek on (channel, direction, amount_usd), one expansion
 // per matching transaction, no second hop.
+// Parameters: run PARAMS.cypher first, or pass them yourself.
 MATCH (t:Transaction)-[:FROM]->(a:Account)
 WHERE t.channel = 'cash'
   AND t.direction = 'credit'

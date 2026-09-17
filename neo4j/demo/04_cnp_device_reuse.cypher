@@ -8,6 +8,7 @@
 // has no relationship to it. The version of this check in
 // typology_checks.cypher decorated the card with `<-[:FROM]-()`, which matches
 // nothing and made the whole query return zero rows at any scale.
+// Parameters: run PARAMS.cypher first, or pass them yourself.
 MATCH (d:Device)<-[:VIA_DEVICE]-(t:Transaction)-[:ON_CARD]->(card:Card)
 WHERE t.channel = 'card_cnp'
   AND t.booked_at >= datetime($window_start)

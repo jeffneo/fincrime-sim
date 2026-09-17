@@ -5,6 +5,7 @@
 // follows it within 30 days, which does not return at mvp scale. The floor is
 // defensible on its own terms: layering exists to move a sum worth layering,
 // and the generator's chains start above USD 25,000.
+// Parameters: run PARAMS.cypher first, or pass them yourself.
 MATCH (a:Account)<-[:FROM]-(t1:Transaction)-[:TO]->(b:Account)
 WHERE t1.channel = 'wire'
   AND t1.direction = 'debit'

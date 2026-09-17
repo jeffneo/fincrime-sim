@@ -26,7 +26,9 @@ USERNAME="${2:-neo4j}"
 TIMEOUT="${TIMEOUT:-900}"
 # An account with real activity. The first account in the id space is a
 # dormant savings account, and the drill-down returns nothing for it.
-ACCOUNT_ID="${ACCOUNT_ID:-ACC-000043670}"
+# Kept in step with neo4j/demo/PARAMS.cypher, which is what a demo actually
+# runs; this is the same account for the same reason.
+ACCOUNT_ID="${ACCOUNT_ID:-ACC-000057796}"
 
 # The demo queries are window-scoped. The mvp preset covers calendar 2025; one
 # month is the unit an analyst actually works in, and the unscoped year does
@@ -115,6 +117,9 @@ printf '%.0s-' {1..70}; printf '\n'
 
 for f in neo4j/demo/*.cypher; do
   name=$(basename "$f" .cypher)
+  # PARAMS.cypher holds the demo's `:param` block, not a query. The harness
+  # passes the same values with -P, so it has nothing to run here.
+  [ "$name" = "PARAMS" ] && continue
   out=$(mktemp)
   start=$(date +%s)
   if run_capped docker compose exec -T --user neo4j neo4j \

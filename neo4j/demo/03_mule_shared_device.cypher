@@ -8,21 +8,25 @@
 // not return at mvp scale.
 //
 // This asks for the device link on the TRANSFER itself rather than anywhere in
-// the sender's history. It is the stricter reading, and it still recovers
-// rings: over calendar 2025 the top hit is the collector of
-// RING-mule_network-00000 with 18 distinct feeders behind it.
+// the sender's history. It is the stricter reading and it still recovers
+// rings, with no false positives at the shipped window: all five hits in
+// October 2025 are labelled mule networks.
 //
-// WINDOW: this is the one query in the set that needs a long window. The
-// generator runs a mule ring continuously rather than in a burst - the ring
-// above spreads 134 receipts over 12 months - and the shared device appears on
-// only a fraction of them, so a month or a quarter holds too few co-occurring
-// feeders to clear the >= 3 bar. A full year returns the rings in ~3.5 minutes;
-// a quarter returns in 8 seconds and finds nothing. That is a property of the
-// data, not of the query, and it is recorded as a calibration item in
-// PHASE1-PLAN.md.
+// WINDOW: the window has to CONTAIN a ring. Each ring runs for one to three
+// months and they are spread across the year, so an arbitrary month may
+// legitimately return nothing - that is the ring calendar, not a failure. The
+// default window in PARAMS.cypher holds five of them; the release README
+// shows the admin query that lists the calendar.
+//
+// (An earlier version of this comment claimed a ring's activity smears across
+// all twelve months and that only a year-long window works. That was wrong -
+// it measured the collector's own background peer traffic, not the ring. A
+// ring's labelled transactions span about a month.)
 //
 // Households legitimately share devices, so this returns those too - which is
-// the point of the demo, not a defect.
+// the point of the demo, not a defect. For the same signal found without
+// being told what shape to look for, see ../gds.
+// Parameters: run PARAMS.cypher first, or pass them yourself.
 MATCH (d:Device)<-[:VIA_DEVICE]-(t:Transaction)-[:FROM]->(a:Account)
 WHERE t.txn_class = 'p2p_transfer'
   AND t.booked_at >= datetime($window_start)

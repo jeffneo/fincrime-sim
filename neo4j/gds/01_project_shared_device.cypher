@@ -32,7 +32,8 @@
 //     scan plus a MERGE per pair. Not worth it when the scoped projection is
 //     three seconds.
 //
-// Parameters: $window_start, $window_end.
+// Parameters: $window_start, $window_end - the same block the Cypher demos
+// use, so run ../demo/PARAMS.cypher first.
 MATCH (a:Account)<-[:FROM]-(t:Transaction)-[:VIA_DEVICE]->(d:Device)
 WHERE t.txn_class = 'p2p_transfer'
   AND t.booked_at >= datetime($window_start)

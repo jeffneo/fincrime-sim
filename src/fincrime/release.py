@@ -237,21 +237,27 @@ cypher-shell -u neo4j -p <password> -d system -f neo4j/roles.cypher
 
 ## Running the demo
 
-The queries in `queries/` are time-scoped and take `window_start` and
-`window_end` parameters. A one-month window returns in seconds at this scale;
-an unscoped year does not, which is a property of the query shape rather than
-of the hardware.
+The queries in `queries/` are time-scoped and take `window_start`,
+`window_end` and `account_id`. A one-month window returns in seconds at this
+scale; an unscoped year does not, which is a property of the query shape
+rather than of the hardware.
+
+`queries/PARAMS.cypher` holds a working set of values with the reasoning for
+each. In Browser or Studio, paste its three `:param` lines and run them once —
+they persist for the session. From the shell, pipe it and the query into the
+same session:
 
 ```bash
-cypher-shell -u analyst -p analystanalyst -d fincrime \\
-  -P "window_start => '2025-10-01T00:00:00Z'" \\
-  -P "window_end   => '2025-11-01T00:00:00Z'" \\
-  -P "account_id   => 'ACC-000043670'" \\
-  -f queries/01_structuring_recovery.cypher
+cat queries/PARAMS.cypher queries/01_structuring_recovery.cypher \\
+  | cypher-shell -u analyst -p analystanalyst -d fincrime
 ```
 
-October is a good default window at this seed: all six queries return rows in
-it. Three mule rings overlap it, which matters for the caveat below.
+Two `-f` flags will not work: cypher-shell evaluates each file separately and
+the parameters do not carry across.
+
+The defaults are October 2025, where all six queries return rows, and an account
+that the first query surfaces — so the drill-down continues the story rather
+than jumping somewhere unrelated.
 
 **Warm the set once after loading.** The first pass runs against an empty page
 cache and is several times slower; nothing is wrong.

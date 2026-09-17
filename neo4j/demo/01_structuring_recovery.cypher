@@ -20,6 +20,7 @@
 //   a month with only (channel, direction, amount_usd) available still reads
 //   booked_at off 3.3M scattered nodes; that one difference was 222s vs 20s on
 //   the CTR aggregation.
+// Parameters: run PARAMS.cypher first, or pass them yourself.
 MATCH (cash:Transaction)-[:FROM]->(feeder:Account)<-[:FROM]-(t:Transaction)-[:TO]->(collector:Account)
 USING JOIN ON feeder
 WHERE cash.channel = 'cash'
