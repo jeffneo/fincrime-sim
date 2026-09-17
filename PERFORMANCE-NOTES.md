@@ -130,11 +130,47 @@ are trustworthy.
   account in the id space, is a savings account with no transactions. Not a
   bug, but worth knowing before demoing an "investigator drill-down" on it.
 
-## Still open
+## GDS at mvp scale
 
-* **GDS at this scale is untested.** Community detection over a projected
-  device-sharing subgraph is the better mule demo than the Cypher form, and
-  neither the projection cost nor the algorithm runtime has been measured.
+Measured. The short version: **the algorithm is free and the projection is
+where the entire cost sits**, and scoping the projection the same way the
+Cypher demos are scoped takes it from twelve minutes to three seconds.
+
+| Step | Time | Result |
+|---|---|---|
+| `gds.graph.project.estimate` for a native Account/Transaction/Device projection | 1s | **6,726 MiB required** — does not fit a 4G heap |
+| Cypher projection, all channels, full year | **730s** | 199,282 nodes / 220,206 rels / **16 MiB** |
+| Cypher projection, p2p + one month | **3s** | 139,974 nodes / 147,388 rels |
+| `gds.wcc.stream` over either | **1–3s** | 89,179 components |
+| Admin scoring against ground truth | 61s | — |
+
+Three things worth keeping:
+
+1. **The natural projection is the wrong one.** Projecting the tripartite
+   graph natively needs 6.7GB, and it answers the wrong question anyway —
+   accounts would be linked through shared transactions as well as shared
+   devices. The useful projection is bipartite Account↔Device, which is 16 MiB.
+2. **The projection query is a 28M-relationship scan, and that is the 730s.**
+   Filtering it to `txn_class = 'p2p_transfer'` inside a window lets it seek
+   the `(txn_class, booked_at)` index added in the performance pass above, and
+   the same result arrives in three seconds. Materialising
+   `(:Account)-[:USED_DEVICE]->(:Device)` so the projection could be native
+   was tried and abandoned: `apoc.periodic.iterate` over 93K devices was on
+   track for about an hour, because it pays the same scan plus a MERGE per
+   pair.
+3. **The demo role can do all of it.** Projecting and running WCC as `analyst`
+   works — GDS graphs live in a per-user catalog, so nothing touches the
+   dataset — which is what D5'' requires of a demo.
+
+What it finds, at the mvp preset with 11 illicit mule rings: sorted by size,
+the **top five components are the five mule rings active in the window and
+everything of four accounts or fewer is a household**. Recall by tier is
+3/3 easy, 5/6 medium, 0/2 hard over a month, and 3/3, 6/6, 0/2 over the year.
+The hard tier sets `device_sharing_rate` to `[0.0, 0.15]` — it removes the
+signal this method uses — so scoring zero there is the difficulty design
+working, not a gap.
+
+## Still open
 * **A year-scoped T1 needs more than 4G of transaction memory.** Either raise
   the pool for batch runs or write a two-pass form.
 * **The Docker VM disk is nearly full** - 4.8GB free of 59GB, with the mvp

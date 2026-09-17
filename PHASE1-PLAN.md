@@ -275,13 +275,20 @@ and one `USING JOIN` hint closed it.
 
 Left over from that work, in priority order for M6:
 
-1. **GDS at mvp scale is untested** — projection cost and algorithm runtime.
-   Community detection over the device-sharing subgraph is the better mule demo
-   than the Cypher form.
-2. **A year-scoped T1 exhausts the 4G transaction memory pool.** Batch shape,
+1. **A year-scoped T1 exhausts the 4G transaction memory pool.** Batch shape,
    not demo shape, but it needs either a larger pool or a two-pass form.
-3. **The Docker VM disk has 4.8GB free** of 59GB. Each additional Transaction
-   index costs ~3.8GB; the next one will not fit without pruning.
+2. **The Docker VM disk** has ~13GB free of 59GB after pruning. Each
+   additional Transaction index costs ~3.8GB.
+
+GDS at mvp scale is now measured and is the strongest demo in the set: a
+bipartite Account↔Device projection is 16 MiB and three seconds when scoped
+the way the Cypher demos are, WCC runs in one to three seconds, and sorted by
+size the top components are the mule rings with households below them — found
+with no threshold and no ground truth, as the demo role. The full-year
+unscoped projection costs 730s for the same answer, and a native tripartite
+projection would need 6,726 MiB against a 4G heap. Detail in
+[PERFORMANCE-NOTES.md](PERFORMANCE-NOTES.md); the walkthrough is
+`neo4j/gds/` and ships in the release.
 
 ## 8. Risks
 

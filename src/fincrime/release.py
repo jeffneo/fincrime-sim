@@ -110,6 +110,12 @@ def assemble(
     queries.mkdir(parents=True, exist_ok=True)
     for path in sorted(Path("neo4j/demo").glob("*.cypher")):
         shutil.copy2(path, queries / path.name)
+    # The GDS walkthrough ships too: it is the most compelling of the demos and
+    # the only one that finds rings without being told what shape to look for.
+    gds = queries / "gds"
+    gds.mkdir(parents=True, exist_ok=True)
+    for path in sorted(Path("neo4j/gds").glob("*.cypher")):
+        shutil.copy2(path, gds / path.name)
 
     if dump is not None and Path(dump).exists():
         shutil.copy2(dump, cypher_dir / "fincrime.dump")
@@ -198,6 +204,7 @@ a reserved test BIN. See `DATA_DICTIONARY.md`.
 | `neo4j/roles-selfhosted.cypher` | The same, for a multi-database server. |
 | `neo4j/typology_checks.cypher` | Topology recovery plus admin-only scoring. |
 | `queries/` | The demo query set. Runs as the demo role; touches no ground truth. |
+| `queries/gds/` | Graph-algorithm walkthrough: project, find communities, score. |
 | `TYPOLOGIES.md` | What is injected, how difficulty tiers are built, and the knob values. |
 | `MANIFEST.json` | Row counts, checksums, and the triple that regenerates this. |
 
@@ -248,6 +255,27 @@ it. Three mule rings overlap it, which matters for the caveat below.
 
 **Warm the set once after loading.** The first pass runs against an empty page
 cache and is several times slower; nothing is wrong.
+
+### The graph-algorithm walkthrough
+
+`queries/gds/` is the demo worth showing. It needs no threshold and no idea of
+what a mule ring looks like — project accounts and the devices they transact
+from, run connected components, sort by size:
+
+```bash
+cypher-shell -u analyst -p analystanalyst -d fincrime \\
+  -P "window_start => '2025-10-01T00:00:00Z'" \\
+  -P "window_end   => '2025-11-01T00:00:00Z'" \\
+  -f queries/gds/01_project_shared_device.cypher   # ~3s
+cypher-shell -u analyst -p analystanalyst -d fincrime \\
+  -f queries/gds/02_communities.cypher             # ~1s
+```
+
+At this seed the top five components are the five mule rings active in that
+window and everything of four accounts or fewer is a household sharing a
+phone — no ground truth involved. `03_score_communities.cypher` proves it
+against the answer key as an admin, and shows the hard tier scoring zero,
+which is the difficulty design working rather than a miss.
 
 One caveat worth knowing before a live demo: `03_mule_shared_device.cypher`
 only returns rings whose activity falls inside the window you pass. Mule rings
