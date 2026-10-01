@@ -27,7 +27,7 @@ CYPHER := $(COMPOSE) exec -T neo4j cypher-shell -u neo4j -p $(NEO4J_PASSWORD)
         load-guard stamp clean-import all \
         check test lint rbac-check shell logs stats clean databases \
         aura-guard aura-dump aura-push aura-setup aura-bench bench \
-        release release-check
+        release release-check backup restore
 
 help:
 	@echo "Pipeline, in order:"
@@ -47,6 +47,10 @@ help:
 	@echo "  make aura-setup            roles, deny rules and demo users on Aura"
 	@echo "  make aura-bench            time the demo query set as admin and analyst"
 	@echo "  make bench TARGET=local    same timings against the local container"
+	@echo ""
+	@echo "Backup / restore (the Docker volume is disposable; these are not):"
+	@echo "  make backup                dump fincrime + Studio's saved assets to backups/latest"
+	@echo "  make restore               rebuild everything in Docker from backups/latest"
 	@echo ""
 	@echo "Release:"
 	@echo "  make release SCALE=mvp     assemble releases/<version>/ (gated on release-check)"
@@ -234,6 +238,96 @@ aura-setup: aura-guard
 # Time the demo query set. TARGET=local|aura, USER=neo4j|analyst.
 bench:
 	@bash scripts/bench-demo.sh $${TARGET:-local} $${USER_ROLE:-neo4j}
+
+# --- backup / restore ------------------------------------------------------
+#
+# Three independent ways back, fastest first:
+#
+#   1. make restore                        dumps in backups/latest   (minutes)
+#   2. make export load SCALE=mvp          Parquet in out/mvp        (~15 min)
+#   3. make generate export load SCALE=mvp the seed, byte-identical  (~20 min)
+#
+# The dump is not redundant with the other two. The dataset is a pure function
+# of the seed, but Studio's saved Bloom perspectives, scenes and graphs (the
+# `tools-storage` database) are somebody's work and exist nowhere else.
+#
+# Roles, users and the deny rules are NOT in a dump - they live in `system` -
+# and are reapplied from neo4j/nes-setup.cypher, which restore runs.
+#
+# Defaults are independent of SCALE on purpose. SCALE defaults to `dev`, so a
+# bare `make backup` that followed it would quietly dump the empty dev database.
+# Pass BACKUP_MAIN=fincrime-dev to back that one up instead.
+
+BACKUP_DIR  ?= backups/latest
+BACKUP_MAIN ?= fincrime
+BACKUP_DBS  ?= $(BACKUP_MAIN) tools-storage
+# ./backups is mounted at /backups in the container (docker-compose.yml).
+BACKUP_MNT   = /$(BACKUP_DIR)
+
+backup:
+	@mkdir -p $(BACKUP_DIR)
+	@studio=$$($(COMPOSE) --profile nes ps --status running -q enterprise-studio 2>/dev/null); \
+	fail=0; \
+	[ -z "$$studio" ] || { echo "pausing Studio (its asset store is one of the dumps)..."; \
+	  $(COMPOSE) --profile nes stop enterprise-studio >/dev/null; }; \
+	for db in $(BACKUP_DBS); do \
+	  echo "dumping $$db..."; \
+	  $(CYPHER) -d system "STOP DATABASE \`$$db\` WAIT" || { fail=1; break; }; \
+	  rc=0; \
+	  $(COMPOSE) exec -T --user neo4j neo4j neo4j-admin database dump $$db \
+	    --to-path=$(BACKUP_MNT) --overwrite-destination=true || rc=$$?; \
+	  $(CYPHER) -d system "START DATABASE \`$$db\` WAIT"; \
+	  [ $$rc -eq 0 ] || { echo "dump of $$db FAILED"; fail=1; break; }; \
+	done; \
+	[ -z "$$studio" ] || $(COMPOSE) --profile nes start enterprise-studio >/dev/null; \
+	exit $$fail
+	@cd $(BACKUP_DIR) && shasum -a 256 *.dump > SHA256SUMS
+	@{ \
+	  echo "created:       $$(date -u +%FT%TZ)"; \
+	  echo "databases:     $(BACKUP_DBS)"; \
+	  echo "git:           $$(git rev-parse HEAD)$$(git status --porcelain | grep -q . && echo -dirty)"; \
+	  echo "neo4j image:   $$(docker inspect fincrime-neo4j --format '{{.Config.Image}}' 2>/dev/null)"; \
+	  echo "studio image:  $$(docker inspect fincrime-nes --format '{{.Config.Image}}' 2>/dev/null)"; \
+	  echo "$(BACKUP_MAIN) nodes: $$($(CYPHER) -d $(BACKUP_MAIN) --format plain 'MATCH (n) RETURN count(n)' 2>/dev/null | tail -1)"; \
+	  echo "$(BACKUP_MAIN) rels:  $$($(CYPHER) -d $(BACKUP_MAIN) --format plain 'MATCH ()-[r]->() RETURN count(r)' 2>/dev/null | tail -1)"; \
+	} > $(BACKUP_DIR)/BACKUP-INFO.txt
+	@echo; cat $(BACKUP_DIR)/BACKUP-INFO.txt; echo; du -sh $(BACKUP_DIR)/*.dump
+
+# Rebuild the Docker side from nothing: start Neo4j, recreate databases / roles /
+# users from nes-setup.cypher, load every dump, start Studio. Safe to run against
+# a freshly cleared volume, which is the case it exists for.
+#
+# Refuses to overwrite a main database that already holds data (FORCE=1 to
+# override), because a restore replaces the whole store and an older dump over a
+# newer graph would lose the newer one silently.
+restore:
+	@test -f $(BACKUP_DIR)/SHA256SUMS || { echo "no backup at $(BACKUP_DIR) (no SHA256SUMS)."; \
+	  echo "Other routes: make export load SCALE=mvp  |  make generate export load SCALE=mvp"; exit 1; }
+	@echo "verifying checksums..."; cd $(BACKUP_DIR) && shasum -a 256 -c SHA256SUMS
+	@$(MAKE) --no-print-directory up
+	@echo "applying databases, roles and users..."
+	@$(CYPHER) -d system -f /cypher/nes-setup.cypher
+	@$(COMPOSE) --profile nes stop enterprise-studio >/dev/null 2>&1 || true
+	@nodes=$$($(CYPHER) -d $(BACKUP_MAIN) --format plain "MATCH (n) RETURN count(n) AS n" 2>/dev/null | tail -1 | tr -dc '0-9'); \
+	nodes=$${nodes:-0}; \
+	if [ "$${FORCE:-0}" != "1" ] && [ "$$nodes" -gt 0 ]; then \
+	  echo ""; echo "REFUSING: $(BACKUP_MAIN) already holds $$nodes nodes."; \
+	  echo "A restore replaces the whole store. Re-run with FORCE=1 if that is what you want."; \
+	  echo ""; exit 1; \
+	fi
+	@set -e; for db in $(BACKUP_DBS); do \
+	  test -f $(BACKUP_DIR)/$$db.dump || { echo "missing $(BACKUP_DIR)/$$db.dump"; exit 1; }; \
+	  echo "restoring $$db..."; \
+	  $(CYPHER) -d system "STOP DATABASE \`$$db\` WAIT"; \
+	  $(COMPOSE) exec -T --user neo4j neo4j neo4j-admin database load $$db \
+	    --from-path=$(BACKUP_MNT) --overwrite-destination=true; \
+	  $(CYPHER) -d system "START DATABASE \`$$db\` WAIT"; \
+	done
+	@$(MAKE) --no-print-directory nes
+	@echo; echo "restored. counts:"
+	@$(CYPHER) -d $(BACKUP_MAIN) --format plain "MATCH (n) RETURN count(n) AS nodes"
+	@$(CYPHER) -d $(BACKUP_MAIN) --format plain "MATCH ()-[r]->() RETURN count(r) AS rels"
+	@echo; echo "verify with: make release-check SCALE=mvp"
 
 # --- release ---------------------------------------------------------------
 

@@ -5,7 +5,12 @@ services:
     # Enterprise is a hard requirement, not a convenience: the release ships
     # fully labeled and relies on Enterprise RBAC to hide :GroundTruth from
     # demo users (PHASE1-PLAN.md D5'). Community has no role-based deny rules.
-    image: ${NEO4J_IMAGE:-neo4j:2026.07-enterprise}
+    #
+    # Pinned to the exact patch release. `neo4j:2026.07-enterprise` is a
+    # floating tag: it stopped existing on this machine when a newer patch
+    # displaced it, so a fresh `up` would have pulled whatever it points at
+    # today and opened a store built by 2026.07.1 with a different server.
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1-enterprise}
     container_name: fincrime-neo4j
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-fincrimefincrime}
@@ -36,6 +41,10 @@ services:
       # Staging area for neo4j-admin import. Bind-mounted so `fincrime
       # export-csv` on the host writes straight into the container's view.
       - ./out/import:/import
+      # Backups live in the project, not the Docker volume: the volume is the
+      # thing that gets cleared. `make backup` dumps here, `make restore` loads
+      # from here (see the Makefile).
+      - ./backups:/backups
       - ./neo4j:/cypher:ro
       # Licenses are referenced, never copied into the image or committed.
       - ${GDS_LICENSE_PATH:-./gds.license}:/licenses/gds.license:ro
@@ -57,7 +66,7 @@ services:
   # One-shot provisioner: Studio service account, asset database, Bloom grants,
   # then the fincrime database and its demo/admin roles.
   nes-init:
-    image: ${NEO4J_IMAGE:-neo4j:2026.07-enterprise}
+    image: ${NEO4J_IMAGE:-neo4j:2026.07.1-enterprise}
     container_name: fincrime-nes-init
     profiles: ["nes"]
     depends_on:
@@ -75,7 +84,9 @@ services:
     restart: "no"
 
   enterprise-studio:
-    image: neo4j/enterprise-studio:latest
+    # Pinned by digest rather than :latest, which silently changes under a
+    # restore - and Studio's saved assets live in a database it migrates.
+    image: ${NES_IMAGE:-neo4j/enterprise-studio@sha256:126e433795d9fcb5feeb13f5d51586d7db60d72df52cb2b5b0f5815dd6bdc451}
     container_name: fincrime-nes
     profiles: ["nes"]
     depends_on:

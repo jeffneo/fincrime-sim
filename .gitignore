@@ -16,3 +16,6 @@ releases/**/*.parquet
 releases/**/*.dump
 releases/**/*.csv
 releases/**/*.csv.gz
+
+# Database dumps. Large, and a backup is only useful if it is not in git history.
+backups/

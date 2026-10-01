@@ -95,6 +95,8 @@ make help
 | `make aura-push SCALE=mvp` | Dump the graph and upload it to the Aura instance in `.env` |
 | `make aura-setup` | Roles, deny rules and demo users on that Aura instance |
 | `make aura-bench` | Time the demo set on Aura, as admin and as analyst |
+| `make backup` | Dump the mvp graph and Studio's saved assets to `backups/latest` |
+| `make restore` | Rebuild everything in Docker from `backups/latest` — see below |
 | `make release SCALE=mvp` | Assemble `releases/<version>/`; gated on `release-check` |
 | `make release-check` | Demo role runs the whole query set; answer key stays unreadable |
 | `make clean` | **Destructive**: drops the graph and `out/` |
@@ -129,7 +131,58 @@ scripts/           bench-demo.sh, which times neo4j/demo against either target
 tests/             schema guards, RNG independence, determinism, live RBAC
 out/               generated datasets and import staging (gitignored)
 releases/          versioned release payloads
+backups/           database dumps (gitignored) - see Backup and restore
 ```
+
+## Backup and restore
+
+The Docker volume is disposable. Nothing in it is the only copy of anything that
+cannot be regenerated, with one exception - Studio's saved perspectives, scenes
+and graphs - which `make backup` covers.
+
+| What | Where it lives | Gets you back |
+|---|---|---|
+| Code, config, seed, queries, docs | git (GitHub has whatever has been pushed) | everything below, by regeneration |
+| The dataset (Parquet) | `out/mvp/`, `releases/<v>/parquet/` | the graph, via `make export load SCALE=mvp` |
+| Neo4j dump of the graph | `backups/latest/fincrime.dump`, `releases/<v>/neo4j/` | the graph, via `make restore` |
+| Studio saved assets (Bloom phrases etc.) | `backups/latest/tools-storage.dump` - **only here** | via `make restore` |
+| Roles, users, deny rules | `neo4j/nes-setup.cypher` | reapplied by `make restore` |
+| `.env`, `gds.license`, `nes.license` | project directory, **gitignored** | not in git or on GitHub; keep your own copy |
+
+After clearing the volume (stop the stack first, `make down`):
+
+```bash
+make restore                    # Neo4j, databases, roles, users, dumps, Studio
+make release-check SCALE=mvp    # demo role runs the whole set; answer key unreadable
+```
+
+`make restore` verifies the checksums first, and refuses to overwrite a database
+that already holds data unless you pass `FORCE=1`. If there is no usable dump,
+the graph is derivable from what is on disk - slower, but it needs nothing from
+Docker:
+
+```bash
+make export load SCALE=mvp                  # from out/mvp, ~15 min
+make generate export load SCALE=mvp         # from the seed, byte-identical, ~20 min
+```
+
+Things to know:
+
+- **Re-run `make backup` after saving anything in Studio.** It stops each
+  database for about a minute. Studio's assets are the one thing the Parquet
+  cannot rebuild.
+- **The first start needs the network.** APOC and GDS are downloaded by the
+  container, not baked into the image.
+- **Images are pinned** (`neo4j:2026.07.1-enterprise`, Studio by digest). The
+  floating `2026.07-enterprise` tag had already stopped existing locally, so a
+  fresh `up` would have opened this store with a different server.
+- **The Neo4j Enterprise evaluation license is time-limited** (the container
+  logged 15 of 30 days remaining on 2026-10-01). Data is unaffected, but the
+  server stops starting when it lapses.
+- **Backups live on this machine only.** GitHub receives code, never dumps.
+- `make restore` has been rehearsed end to end against `fincrime-dev` -
+  drop the database, restore, check the roles still hide the answer key - but
+  not from a truly empty volume at mvp scale.
 
 ## Reproducibility
 
